@@ -18,7 +18,13 @@ DATASETS_DIR: Path = PROJECT_ROOT / "datasets"
 RAW_DIR: Path = DATASETS_DIR / "raw"
 PROCESSED_DIR: Path = DATASETS_DIR / "processed"
 UNIFIED_DIR: Path = DATASETS_DIR / "unified"
-REPORTS_DIR: Path = DATASETS_DIR / "reports"
+
+#: Графики вынесены в корень репозитория (не внутрь datasets/).
+#: ``before`` — снимок для выступления, конвейер его не перезаписывает.
+#: ``current`` — актуальные графики после новых прогонов ETL.
+REPORTS_ROOT: Path = PROJECT_ROOT / "reports"
+REPORTS_BEFORE_DIR: Path = REPORTS_ROOT / "before"
+REPORTS_DIR: Path = REPORTS_ROOT / "current"
 
 #: Подкаталоги исходных данных по источникам. Сюда пользователь складывает
 #: готовые датасеты (файлы и/или вложенные папки сканируются рекурсивно).
@@ -65,6 +71,7 @@ class PipelinePaths:
             self.processed_dir,
             self.unified_dir,
             self.reports_dir,
+            self.reports_dir / COMBINED_REPORT_KEY,
             *self.extra_dirs,
         ):
             directory.mkdir(parents=True, exist_ok=True)
@@ -75,7 +82,7 @@ class PipelinePaths:
         return self.raw_dir / source
 
     def reports_source_dir(self, source: str) -> Path:
-        """Каталог отчётов конкретного источника."""
+        """Каталог отчётов конкретного источника (``NAB`` / ``KPI`` / ``combined``)."""
 
         return self.reports_dir / source
 

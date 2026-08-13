@@ -16,7 +16,7 @@
 
 Конвейер реализует три уровня данных (RAW -> PROCESSED -> UNIFIED), формирует
 ML-набор признаков, сохраняет результаты в Apache Parquet (+ CSV-экспорт) и
-строит графики-отчёты по каждому источнику и общий отчёт в ``datasets/reports``.
+строит графики-отчёты в ``reports/current/`` (снимок ``reports/before/`` не перезаписывается).
 """
 
 from __future__ import annotations

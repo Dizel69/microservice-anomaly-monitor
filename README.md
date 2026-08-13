@@ -16,6 +16,7 @@
 - [Три уровня данных](#три-уровня-данных)
 - [Единый формат хранения](#единый-формат-хранения)
 - [Источники данных](#источники-данных)
+- [Данные в GitHub](#данные-в-github)
 - [Инженерия признаков](#инженерия-признаков)
 - [Форматы хранения](#форматы-хранения)
 - [Визуализация](#визуализация)
@@ -65,7 +66,7 @@
 | **RAW**       | `datasets/raw/`       | Исходные данные источников без изменений               |
 | **PROCESSED** | `datasets/processed/` | Данные после очистки и нормализации                    |
 | **UNIFIED**   | `datasets/unified/`   | Единый датасет + сформированный ML-набор признаков     |
-| Отчёты        | `datasets/reports/`   | Графики (PNG): по каждому источнику + общие            |
+| Отчёты        | `reports/`            | Графики PNG в корне репозитория (`before/` и `current/`) |
 
 ### Куда складывать готовые датасеты
 
@@ -122,6 +123,26 @@ datasets/raw/
 
 ---
 
+## Данные в GitHub
+
+Исходники и графики можно скачать вместе с репозиторием. Подробности и лицензии:
+[DATASETS.md](DATASETS.md).
+
+| Кладём в git | Не кладём (лимит 100 МБ / пересобирается) |
+|--------------|-------------------------------------------|
+| `datasets/raw/NAB/**/*.csv` (MIT, Numenta) | `datasets/unified/` |
+| `datasets/raw/KPI/phase2_train.csv.gz` (MIT, ~16 МБ) | несжатый `phase2_train.csv` (~176 МБ) |
+| `datasets/raw/PROMETHEUS/*.parquet` | `datasets/processed/` |
+| `reports/before/` и `reports/current/` | `.venv/`, `*.docx` |
+
+KPI в git — сжатый файл. Конвейер читает `.csv.gz` без распаковки:
+
+```bash
+python main.py kpi
+```
+
+---
+
 ## Инженерия признаков
 
 Признаки рассчитываются независимо по каждому временному ряду
@@ -153,9 +174,12 @@ datasets/raw/
 
 ## Визуализация
 
-После ETL автоматически строятся 5 графиков **для каждого источника**
-(в `datasets/reports/<ИСТОЧНИК>/`) и **общий** набор по всем источникам сразу
-(в корне `datasets/reports/`):
+Графики лежат в корне репозитория, в `reports/`:
+
+- **`reports/before/`** — снимок текущего состояния датасетов (для выступления: «как было»). Конвейер этот каталог **не перезаписывает**.
+- **`reports/current/`** — графики новых прогонов ETL. Сюда смотреть после улучшения входных данных.
+
+После ETL строятся 5 графиков **для каждого источника** (`NAB/`, `KPI/`, `PROMETHEUS/`) и **общий** набор в `combined/`:
 
 | Файл                       | Содержание                          |
 |----------------------------|-------------------------------------|
@@ -166,14 +190,17 @@ datasets/raw/
 | `dataset_summary.png`      | Сводный отчёт по набору данных       |
 
 ```
-datasets/reports/
-├── NAB/                 # графики только по NAB
-│   ├── raw_data.png ...
-├── KPI/                 # графики только по KPI
-├── PROMETHEUS/          # графики только по Prometheus
-├── raw_data.png         # общие графики по всем источникам
-├── processed_data.png
-└── ...
+reports/
+├── before/                  # снимок для выступления (не трогать)
+│   ├── NAB/
+│   ├── KPI/
+│   ├── PROMETHEUS/
+│   └── combined/
+└── current/                 # python main.py пишет сюда
+    ├── NAB/
+    ├── KPI/
+    ├── PROMETHEUS/
+    └── combined/
 ```
 
 ---
@@ -206,8 +233,10 @@ microservice-anomaly-monitor/
 │   │   ├── KPI/                  # входные CSV KPI (+ sample_*.csv)
 │   │   └── PROMETHEUS/
 │   ├── processed/                # PROCESSED (по источникам)
-│   ├── unified/                  # UNIFIED + ML-набор (общий по всем источникам)
-│   └── reports/                  # графики PNG (по источникам + общие)
+│   └── unified/                  # UNIFIED + ML-набор
+├── reports/
+│   ├── before/                   # снимок графиков для выступления
+│   └── current/                  # графики новых прогонов ETL
 ├── main.py                       # CLI
 ├── requirements.txt
 ├── README.md
@@ -303,9 +332,9 @@ python main.py --no-viz all           # без построения график
   - NAB         : 900
 ...
 Графики (reports):
-  [KPI]      -> datasets/reports/KPI/*.png
-  [NAB]      -> datasets/reports/NAB/*.png
-  [combined] -> datasets/reports/*.png
+  [KPI]      -> reports/current/KPI/*.png
+  [NAB]      -> reports/current/NAB/*.png
+  [combined] -> reports/current/combined/*.png
 ```
 
 ---

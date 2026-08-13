@@ -26,13 +26,30 @@ htmlcov/
 .vscode/
 .idea/
 
-# Данные ETL: игнорируем генерируемые артефакты, но сохраняем структуру
-# каталогов (через .gitkeep) и демонстрационные входные CSV (sample_*.csv).
-datasets/**
-!datasets/**/
-!datasets/**/.gitkeep
-!datasets/raw/NAB/sample_*.csv
-!datasets/raw/KPI/sample_*.csv
-
 # Системные файлы
 .DS_Store
+
+# Личные документы (отчёты НИР) — не в публичный репозиторий
+*.docx
+
+# ---------------------------------------------------------------------------
+# Данные: в git кладём ИСХОДНИКИ, которые можно скачать с GitHub.
+# GitHub не принимает файлы > 100 МБ — поэтому:
+#   - KPI: в репозитории phase2_train.csv.gz (~16 МБ), не сырой .csv (176 МБ)
+#   - unified/processed: пересобираются конвейером, в git не кладём
+# ---------------------------------------------------------------------------
+datasets/processed/**
+!datasets/processed/**/
+!datasets/processed/**/.gitkeep
+
+datasets/unified/**
+!datasets/unified/**/
+!datasets/unified/**/.gitkeep
+
+# Служебные parquet, которые ETL кладёт рядом с исходниками
+datasets/raw/**/*.parquet
+# Свои выгрузки Prometheus — маленькие, оставляем в git
+!datasets/raw/PROMETHEUS/*.parquet
+
+# Несжатый KPI превышает лимит GitHub
+datasets/raw/KPI/phase2_train.csv

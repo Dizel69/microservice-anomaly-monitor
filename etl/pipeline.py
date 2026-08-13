@@ -186,8 +186,9 @@ def _generate_all_reports(
 ) -> Dict[str, Dict[str, Path]]:
     """Построить отчёты по каждому источнику и общий (combined) отчёт.
 
-    Для каждого источника графики сохраняются в ``reports/<SOURCE>/``,
-    а общие графики по всем источникам — в корне ``reports/``.
+    Для каждого источника графики сохраняются в ``reports/current/<SOURCE>/``,
+    общие — в ``reports/current/combined/``. Снимок ``reports/before/``
+    конвейер не трогает.
     """
 
     report_paths: Dict[str, Dict[str, Path]] = {}
@@ -205,9 +206,12 @@ def _generate_all_reports(
             raw_sub, unified_sub, ml_sub, paths.reports_source_dir(src)
         )
 
-    # Общий отчёт по всем источникам — в корне каталога reports.
+    # Общий отчёт — в reports/current/combined/, не в корне current/.
     report_paths[COMBINED_REPORT_KEY] = generate_reports(
-        raw_combined, unified, ml_dataset, paths.reports_dir
+        raw_combined,
+        unified,
+        ml_dataset,
+        paths.reports_source_dir(COMBINED_REPORT_KEY),
     )
     return report_paths
 

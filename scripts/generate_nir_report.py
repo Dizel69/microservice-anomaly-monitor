@@ -18,11 +18,11 @@ import sys
 
 sys.path.insert(0, str(ROOT))
 OUT_PATH = ROOT / "Отчёт_НИР_Синев_Денис_Евгеньевич_ETL_2026.docx"
-REPORTS_ROOT = ROOT / "datasets/reports"
+REPORTS_ROOT = ROOT / "reports" / "before"
 REPORTS_NAB = REPORTS_ROOT / "NAB"
 REPORTS_KPI = REPORTS_ROOT / "KPI"
 REPORTS_PROM = REPORTS_ROOT / "PROMETHEUS"
-REPORTS_COMBINED = REPORTS_ROOT
+REPORTS_COMBINED = REPORTS_ROOT / "combined"
 REPORTS_SAMPLE = REPORTS_ROOT / "REPORT_SAMPLE"
 NAB_SAMPLE = ROOT / "datasets/raw/NAB/AWSCloudwatch/ec2_cpu_utilization_24ae8d.csv"
 KPI_SAMPLE_ROWS = 5000
@@ -337,7 +337,8 @@ def section_etl_creation(doc: Document) -> None:
         doc,
         "Оркестратор run_pipeline() для каждого источника сохраняет Parquet на уровнях "
         "RAW и PROCESSED, объединяет данные в unified_dataset, строит ml_dataset и "
-        "генерирует пять типов графиков в datasets/reports/<источник>/ и общий каталог combined.",
+        "генерирует пять типов графиков в reports/current/<источник>/ "
+        "и общий набор в reports/current/combined/. Снимок reports/before/ не перезаписывается.",
     )
 
 
@@ -556,7 +557,7 @@ def section_dataset_check(doc: Document) -> None:
     add_subsection(doc, "Сводные графики по объединённому набору (combined)")
     add_paragraph(
         doc,
-        "При команде python main.py all строятся общие отчёты в корне datasets/reports/ — "
+        "При команде python main.py all строятся общие отчёты в reports/current/combined/ — "
         "они отражают совмещение всех загруженных источников и используются для "
         "сравнительного анализа распределений и динамики метрик.",
     )
@@ -641,7 +642,7 @@ def section_ml_and_viz(doc: Document) -> None:
         [
             ["unified_dataset.parquet", "datasets/unified/", "6 колонок единого формата"],
             ["ml_dataset.parquet", "datasets/unified/", "признаки + label"],
-            ["reports/<SOURCE>/*.png", "datasets/reports/", "5 графиков на источник"],
+            ["reports/current/<SOURCE>/*.png", "reports/current/", "5 графиков на источник"],
             ["processed/<SOURCE>/*.parquet", "datasets/processed/", "нормализованные ряды"],
         ],
     )
@@ -674,8 +675,9 @@ def section_ml_and_viz(doc: Document) -> None:
     )
     add_paragraph(
         doc,
-        "datasets/reports/NAB/, KPI/, PROMETHEUS/ — по источнику; "
-        "datasets/reports/*.png — combined (все источники).",
+        "reports/current/NAB/, KPI/, PROMETHEUS/ — по источнику; "
+        "reports/current/combined/*.png — все источники. "
+        "Снимок «до улучшения» лежит в reports/before/.",
         first_line_indent_cm=0.63,
     )
     add_subsection(doc, "Итоги выполнения ETL (пример консольного вывода)")
