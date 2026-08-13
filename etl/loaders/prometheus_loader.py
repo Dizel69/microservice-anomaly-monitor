@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 import requests
@@ -58,6 +59,10 @@ _SERVICE_LABEL_PRIORITY = (
     "app",
     "instance",
 )
+
+#: Метки, которые уже отражены в колонках ``metric_name``/``service`` и
+#: поэтому не участвуют в уточнении имени метрики.
+_NON_DISTINGUISHING_LABELS = frozenset({"__name__", *_SERVICE_LABEL_PRIORITY})
 
 
 class PrometheusError(RuntimeError):
@@ -136,6 +141,74 @@ def _series_to_records(
             }
         )
     return records
+
+
+def _parse_labels(raw: Any) -> Dict[str, str]:
+    """Разобрать JSON-строку меток Prometheus (пустой словарь при ошибке)."""
+
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def qualify_metric_names(frame: pd.DataFrame) -> pd.DataFrame:
+    """Уточнить ``metric_name`` различающими метками Prometheus.
+
+    Одна метрика (``node_cpu_seconds_total``) разворачивается сервером в
+    несколько независимых рядов, отличающихся метками (``cpu``, ``mode``).
+    Без учёта этих меток все ряды сливаются в один: скользящие признаки
+    считаются по перемешанным значениям, а точки с совпадающими значениями
+    отбрасываются как дубликаты.
+
+    Функция добавляет к имени метрики только те метки, которые реально
+    различаются внутри выгрузки, в виде ``cpu_usage{cpu="0",mode="idle"}``.
+    Если различающих меток нет, имя остаётся прежним. Ранее добавленный
+    суффикс отбрасывается, поэтому повторная обработка уже уточнённого
+    дампа не наращивает имя.
+
+    Args:
+        frame: Кадр Prometheus с колонками ``metric_name`` и ``labels``.
+
+    Returns:
+        Кадр с уточнённой колонкой ``metric_name``.
+    """
+
+    if LABELS not in frame.columns or frame.empty:
+        return frame
+
+    parsed = frame[LABELS].map(_parse_labels)
+    all_keys = {key for labels in parsed for key in labels}
+    varying = sorted(
+        key
+        for key in all_keys - _NON_DISTINGUISHING_LABELS
+        if parsed.map(lambda labels, k=key: labels.get(k, "")).nunique() > 1
+    )
+
+    if not varying:
+        return frame
+
+    def qualify(row_labels: Dict[str, str], name: str) -> str:
+        base = name.split("{", 1)[0]
+        pairs = ",".join(f'{key}="{row_labels.get(key, "")}"' for key in varying)
+        return f"{base}{{{pairs}}}"
+
+    result = frame.copy()
+    result[METRIC_NAME] = [
+        qualify(labels, name)
+        for labels, name in zip(parsed, result[METRIC_NAME].astype(str))
+    ]
+    logger.info(
+        "PROMETHEUS: имена метрик уточнены метками %s (%d рядов)",
+        varying,
+        result[METRIC_NAME].nunique(),
+    )
+    return result
 
 
 def _matrix_to_records(result: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -235,9 +308,58 @@ def load_prometheus(
 
     frame = pd.DataFrame.from_records(records)
     frame[TIMESTAMP] = pd.to_datetime(frame[TIMESTAMP], unit="s", errors="coerce")
+    frame = qualify_metric_names(frame)
 
-    series_count = frame[SERVICE].nunique()
+    series_count = frame.groupby([SERVICE, METRIC_NAME]).ngroups
     logger.info(
         "PROMETHEUS: получено %d точек, %d серий", len(frame), series_count
     )
     return frame[PROMETHEUS_COLUMNS]
+
+
+def load_prometheus_dump(path: Union[str, Path]) -> pd.DataFrame:
+    """Загрузить ранее сохранённую выгрузку Prometheus (parquet или CSV).
+
+    Используется, когда живой HTTP API недоступен: берём файлы из
+    ``datasets/raw/PROMETHEUS/``.
+
+    Args:
+        path: Путь к ``.parquet`` или ``.csv``.
+
+    Returns:
+        DataFrame в формате Prometheus (единая схема + ``labels``, если была).
+
+    Raises:
+        FileNotFoundError: Если файл не существует.
+        ValueError: Если нет обязательных колонок.
+    """
+
+    file_path = Path(path)
+    logger.info("PROMETHEUS: загрузка дампа %s", file_path)
+    if not file_path.is_file():
+        raise FileNotFoundError(f"Дамп Prometheus не найден: {file_path}")
+
+    suffix = file_path.suffix.lower()
+    if suffix == ".parquet":
+        frame = pd.read_parquet(file_path)
+    elif suffix == ".csv":
+        frame = pd.read_csv(file_path)
+    else:
+        raise ValueError(f"Неподдерживаемый формат дампа Prometheus: {file_path}")
+
+    missing = [col for col in UNIFIED_COLUMNS if col not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"В дампе Prometheus отсутствуют колонки {missing}: {file_path}"
+        )
+
+    frame[SOURCE] = SOURCE_PROMETHEUS
+    # У Prometheus нет эталонной разметки аномалий: любые метки в дампе
+    # заменяются на «неизвестно», чтобы не выдавать догадки за истину.
+    frame[LABEL] = LABEL_UNKNOWN
+
+    frame = qualify_metric_names(frame)
+
+    extra = [LABELS] if LABELS in frame.columns else []
+    logger.info("PROMETHEUS: из дампа загружено %d точек", len(frame))
+    return frame[[*UNIFIED_COLUMNS, *extra]]

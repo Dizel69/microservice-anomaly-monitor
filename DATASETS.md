@@ -11,13 +11,40 @@
 
 | Путь | Что внутри | Лицензия |
 |------|------------|----------|
-| `datasets/raw/NAB/**/*.csv` | Ряды Numenta Anomaly Benchmark | MIT ([numenta/NAB](https://github.com/numenta/NAB)) |
+| `datasets/raw/NAB/**/*.csv` | 58 официальных рядов Numenta Anomaly Benchmark | MIT ([numenta/NAB](https://github.com/numenta/NAB)) |
+| `datasets/raw/NAB/labels/combined_windows.json` | Официальные окна аномалий NAB | MIT (numenta/NAB) |
+| `datasets/raw/NAB/labels/combined_labels.json` | Точечные метки NAB (справочно) | MIT (numenta/NAB) |
 | `datasets/raw/KPI/phase2_train.csv.gz` | KPI Anomaly Detection, train | MIT ([NetManAIOps/KPI-Anomaly-Detection](https://github.com/NetManAIOps/KPI-Anomaly-Detection)) |
+| `datasets/raw/KPI/phase2_ground_truth.csv.gz` | KPI, тестовая выборка с эталонными метками | MIT (NetManAIOps) |
 | `datasets/raw/PROMETHEUS/*.parquet` | Выгрузка с нашего Prometheus | данные проекта |
 | `reports/before/` | Графики **до** исправления датасетов (для выступления) | этот репозиторий |
 | `reports/current/` | Графики **после** новых прогонов ETL | этот репозиторий |
 
 Код проекта — MIT, см. корневой `LICENSE`.
+
+## Метки аномалий по источникам
+
+| Источник | Откуда метки | Значения `label` |
+|----------|--------------|------------------|
+| NAB | `labels/combined_windows.json`: точка внутри окна -> 1, вне -> 0 | 0 / 1 |
+| KPI | колонка `label` в исходных CSV (разметка организаторов) | 0 / 1 |
+| PROMETHEUS | эталонной разметки нет, метки не выдумываем | -1 |
+
+В самих CSV-файлах NAB колонки `label` нет, поэтому без файла окон разметка
+невозможна. Если файла нет, загрузчик пишет предупреждение в лог.
+
+## Как догрузить данные
+
+```bash
+# 58 рядов NAB + официальные метки
+python scripts/fetch_nab.py
+
+# только метки NAB
+python scripts/fetch_nab.py --labels-only
+
+# тестовая выборка KPI с ответами (HDF -> csv.gz)
+python scripts/fetch_kpi_ground_truth.py
+```
 
 ## Как пользоваться KPI из git
 

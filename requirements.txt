@@ -3,3 +3,9 @@ numpy==2.1.3
 requests==2.32.3
 pyarrow==24.0.0
 matplotlib==3.10.9
+
+# Чтение HDF из scripts/fetch_kpi_ground_truth.py (тестовая выборка KPI).
+tables==3.11.1
+
+# Тесты
+pytest==9.0.3

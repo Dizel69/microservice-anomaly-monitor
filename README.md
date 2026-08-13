@@ -95,7 +95,7 @@ datasets/raw/
 |---------------|--------------------------------------------------------------------------|
 | `timestamp`   | Время измерения                                                          |
 | `service`     | Имя сервиса (микросервиса / временного ряда)                             |
-| `metric_name` | Тип метрики: `cpu_usage`, `memory_usage`, `disk_usage`, `http_latency`, `request_rate`, `error_rate` |
+| `metric_name` | Тип метрики: инфраструктурные (`cpu_usage`, `memory_usage`, `disk_usage`, `network_traffic`, `http_latency`, `request_rate`, `error_rate`) и прикладные ряды NAB (`temperature`, `tweet_volume`, `taxi_demand`, `travel_time`, ...) |
 | `value`       | Числовое значение метрики                                                |
 | `label`       | Метка аномалии: `0` — норма, `1` — аномалия, `-1` — неизвестно           |
 | `source`      | Источник: `NAB`, `KPI`, `PROMETHEUS`                                     |
@@ -108,18 +108,32 @@ datasets/raw/
 
 ## Источники данных
 
-| Источник     | Ссылка                                                       | Метка по умолчанию |
-|--------------|--------------------------------------------------------------|--------------------|
-| NAB          | https://github.com/numenta/NAB                               | `0`                |
-| KPI          | https://github.com/NetManAIOps/KPI-Anomaly-Detection         | из файла / `0`     |
-| Prometheus   | Prometheus HTTP API (`/api/v1/query_range`, `/api/v1/query`) | `-1`               |
+| Источник     | Ссылка                                                       | Откуда берётся `label`            |
+|--------------|--------------------------------------------------------------|-----------------------------------|
+| NAB          | https://github.com/numenta/NAB                               | окна `labels/combined_windows.json` → `0`/`1` |
+| KPI          | https://github.com/NetManAIOps/KPI-Anomaly-Detection         | колонка `label` в CSV → `0`/`1`   |
+| Prometheus   | локальные дампы в `datasets/raw/PROMETHEUS/`                 | разметки нет → `-1`               |
 
-- **NAB**: `service` и `metric_name` выводятся из имени файла
-  (`ec2_cpu_utilization_*.csv` → `cpu_usage`).
-- **KPI**: `service` берётся из колонки `KPI ID`, `metric_name = kpi_value`.
+- **NAB**: `service` — имя файла; `metric_name` выводится из имени файла
+  (`ec2_cpu_utilization_*.csv` → `cpu_usage`), а если эвристика не сработала —
+  из категории (`realTweets` → `tweet_volume`). Меток внутри CSV нет: точка
+  получает `label = 1`, если её время попало в окно аномалии, иначе `0`.
+- **KPI**: `service` берётся из колонки `KPI ID`, `metric_name = kpi_value`,
+  метки организаторов переносятся как есть. Читаются `.csv` и `.csv.gz`.
 - **Prometheus**: `service` определяется по меткам
   (`service`/`job`/`container`/`pod`/`instance`), `metric_name` —
-  каноникализация `__name__`, все исходные метки сохраняются в `labels`.
+  каноникализация `__name__`, уточнённая различающимися метками серии
+  (`cpu_usage{cpu="0",mode="idle"}`), все исходные метки сохраняются в `labels`.
+
+Загрузчики не взаимозаменяемы: файл KPI, поданный в NAB-загрузчик, отвергается
+с ошибкой, чтобы `source` не оказался перепутан.
+
+Догрузка данных из первоисточников:
+
+```bash
+python scripts/fetch_nab.py                 # 58 рядов NAB + официальные метки
+python scripts/fetch_kpi_ground_truth.py    # тестовая выборка KPI с ответами
+```
 
 ---
 
@@ -292,20 +306,20 @@ python main.py prometheus http://185.28.85.183:9090 \
 
 ### Общий запуск по трём источникам (`all`)
 
-Объединяет все источники в **один большой ML-набор** и строит отчёты по каждому
-источнику + общий:
+Объединяет все источники в **один большой ML-набор**. Prometheus по умолчанию
+берётся из уже скачанных дампов `datasets/raw/PROMETHEUS/*.parquet`
+(живой сервер не вызывается):
 
 ```bash
-# NAB (datasets/raw/NAB) + KPI (datasets/raw/KPI); Prometheus — опционально
 python main.py all
+```
 
-# с Prometheus:
+Живой HTTP API — только если явно указать URL (сейчас на сервере нет нужных метрик):
+
+```bash
 python main.py all \
     --prom-url http://185.28.85.183:9090 \
     --prom-query node_cpu_seconds_total node_memory_MemAvailable_bytes
-
-# можно переопределить пути источников:
-python main.py all --nab path/to/nab_dir --kpi path/to/kpi_dir
 ```
 
 ### Общие опции

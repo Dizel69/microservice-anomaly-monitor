@@ -2,12 +2,18 @@
 
 Источник: https://github.com/NetManAIOps/KPI-Anomaly-Detection
 
-Поддерживаются CSV-файлы из каталога ``Finals_dataset``. Типичные колонки:
+Поддерживаются CSV-файлы из каталога ``Finals_dataset`` — как несжатые
+(``phase2_train.csv``), так и сжатые (``phase2_train.csv.gz``,
+``phase2_ground_truth.csv.gz``); формат сжатия определяется по расширению.
+Типичные колонки:
 
 * ``timestamp`` — UNIX-время (секунды);
 * ``value`` — значение KPI;
-* ``label`` — метка аномалии (0/1);
+* ``label`` — метка аномалии (0/1), поставленная разметчиками;
 * ``KPI ID`` — идентификатор временного ряда (используется как ``service``).
+
+Метки набора KPI — настоящая эталонная разметка, поэтому они переносятся
+в единый формат как есть, без доразметки и без замены на «неизвестно».
 """
 
 from __future__ import annotations
@@ -51,6 +57,12 @@ def _find_column(columns: List[str], candidates: List[str]) -> Optional[str]:
     return None
 
 
+def _compression_of(path: Path) -> str:
+    """Определить способ сжатия CSV по имени файла (для ``pandas``)."""
+
+    return "gzip" if path.name.lower().endswith(".csv.gz") else "infer"
+
+
 def _to_datetime(series: pd.Series) -> pd.Series:
     """Преобразовать колонку времени KPI в datetime.
 
@@ -72,9 +84,10 @@ def load_kpi(
     """Загрузить CSV-файл KPI и привести к единому формату.
 
     Args:
-        csv_path: Путь к CSV-файлу из набора данных KPI (Finals_dataset).
+        csv_path: Путь к CSV-файлу из набора данных KPI (Finals_dataset),
+            допускается ``.csv`` и ``.csv.gz``.
         service: Принудительное имя сервиса. Если ``None`` — берётся из
-            колонки ``KPI ID`` (или имени файла).
+            колонки ``KPI ID``.
 
     Returns:
         DataFrame с колонками
@@ -82,7 +95,8 @@ def load_kpi(
 
     Raises:
         FileNotFoundError: Если файл не существует.
-        ValueError: Если не удалось определить обязательные колонки.
+        ValueError: Если не удалось определить обязательные колонки либо
+            файл не похож на набор KPI (нет ``KPI ID`` и не задан ``service``).
     """
 
     path = Path(csv_path)
@@ -92,7 +106,7 @@ def load_kpi(
         raise FileNotFoundError(f"Файл KPI не найден: {path}")
 
     try:
-        raw = pd.read_csv(path)
+        raw = pd.read_csv(path, compression=_compression_of(path))
     except Exception as exc:  # noqa: BLE001
         raise ValueError(f"Не удалось прочитать CSV-файл KPI '{path}': {exc}") from exc
 
@@ -112,16 +126,22 @@ def load_kpi(
     label_col = _find_column(columns, _LABEL_CANDIDATES)
     service_col = _find_column(columns, _SERVICE_CANDIDATES)
 
+    if service is None and service_col is None:
+        raise ValueError(
+            f"KPI: в файле '{path}' нет колонки идентификатора ряда "
+            f"('KPI ID'). Доступные колонки: {columns}. Если это действительно "
+            "набор KPI, укажите имя сервиса явно (service=...); файлы других "
+            "наборов (например, NAB) следует грузить своим загрузчиком."
+        )
+
     frame = pd.DataFrame()
     frame[TIMESTAMP] = _to_datetime(raw[ts_col])
 
     if service is not None:
         frame[SERVICE] = service
-    elif service_col is not None:
+    else:
         logger.info("KPI: имя сервиса берётся из колонки '%s'", service_col)
         frame[SERVICE] = raw[service_col].astype(str)
-    else:
-        frame[SERVICE] = path.stem
 
     frame[METRIC_NAME] = KPI_METRIC_NAME
     frame[VALUE] = raw[val_col]
@@ -135,5 +155,10 @@ def load_kpi(
 
     frame[SOURCE] = SOURCE_KPI
 
-    logger.info("KPI: загружено %d строк", len(frame))
+    logger.info(
+        "KPI: загружено %d строк, %d рядов, аномалий %d",
+        len(frame),
+        frame[SERVICE].nunique(),
+        int(pd.to_numeric(frame[LABEL], errors="coerce").eq(1).sum()),
+    )
     return frame[UNIFIED_COLUMNS]

@@ -7,8 +7,8 @@
     python main.py kpi [пути ...]
     python main.py prometheus http://185.28.85.183:9090 container_cpu_usage_seconds_total
 
-    # общий запуск сразу по трём источникам -> один большой ML-набор
-    python main.py all --prom-url http://185.28.85.183:9090 --prom-query node_cpu_seconds_total
+    # общий запуск: NAB + KPI + локальные дампы Prometheus (без HTTP)
+    python main.py all
 
 Если для ``nab``/``kpi`` не указать пути, сканируются каталоги по умолчанию
 (``datasets/raw/NAB`` и ``datasets/raw/KPI`` соответственно), включая вложенные
@@ -31,9 +31,15 @@ from etl.config import (
     DEFAULT_PATHS,
     RAW_KPI_DIR,
     RAW_NAB_DIR,
+    RAW_PROMETHEUS_DIR,
 )
 from etl.discovery import collect_csv_files
-from etl.loaders import load_kpi, load_nab, load_prometheus
+from etl.labels.nab_labels import (
+    NabWindowIndex,
+    find_nab_labels_dir,
+    load_nab_windows,
+)
+from etl.loaders import load_kpi, load_nab, load_prometheus, load_prometheus_dump
 from etl.logging_config import configure_logging, get_logger
 from etl.pipeline import LoadedSource, PipelineResult, run_pipeline
 
@@ -115,6 +121,31 @@ def _add_prom_options(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _load_nab_window_index(files: List[Path]) -> Optional[NabWindowIndex]:
+    """Загрузить индекс окон аномалий NAB один раз на весь прогон.
+
+    Файл ``labels/combined_windows.json`` ищется рядом с данными: сначала в
+    каталоге NAB по умолчанию, затем вверх по дереву от первого CSV-файла.
+    """
+
+    for candidate in (RAW_NAB_DIR, *(f for f in files[:1])):
+        labels_dir = find_nab_labels_dir(candidate)
+        if labels_dir is None:
+            continue
+        try:
+            return load_nab_windows(labels_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.warning("NAB: не удалось загрузить окна аномалий: %s", exc)
+            return None
+
+    logger.warning(
+        "NAB: файл окон аномалий не найден. Скачайте его командой "
+        "'python scripts/fetch_nab.py --labels-only', иначе все точки "
+        "получат label=0."
+    )
+    return None
+
+
 def _nab_sources(path_args: Optional[List[str]]) -> List[LoadedSource]:
     """Собрать источники NAB из файлов/каталогов (или каталога по умолчанию)."""
 
@@ -122,7 +153,15 @@ def _nab_sources(path_args: Optional[List[str]]) -> List[LoadedSource]:
     files = collect_csv_files(targets)
     if not files:
         logger.warning("NAB: не найдено CSV-файлов в %s", targets)
-    return [LoadedSource(name=f.stem, dataframe=load_nab(f)) for f in files]
+        return []
+
+    windows = _load_nab_window_index(files)
+    return [
+        LoadedSource(
+            name=f.stem, dataframe=load_nab(f, windows=windows), source_path=f
+        )
+        for f in files
+    ]
 
 
 def _kpi_sources(path_args: Optional[List[str]]) -> List[LoadedSource]:
@@ -132,7 +171,56 @@ def _kpi_sources(path_args: Optional[List[str]]) -> List[LoadedSource]:
     files = collect_csv_files(targets)
     if not files:
         logger.warning("KPI: не найдено CSV-файлов в %s", targets)
-    return [LoadedSource(name=f.stem, dataframe=load_kpi(f)) for f in files]
+    return [
+        LoadedSource(name=f.stem, dataframe=load_kpi(f), source_path=f)
+        for f in files
+    ]
+
+
+def _prometheus_dump_files(directory: Path) -> List[Path]:
+    """Найти локальные дампы Prometheus (parquet/csv) в каталоге."""
+
+    if not directory.is_dir():
+        return []
+    files = sorted(
+        p
+        for p in directory.iterdir()
+        if p.is_file() and p.suffix.lower() in {".parquet", ".csv"}
+    )
+    return files
+
+
+def _prometheus_local_sources(
+    path_args: Optional[List[str]] = None,
+) -> List[LoadedSource]:
+    """Загрузить ранее скачанные дампы из datasets/raw/PROMETHEUS (без HTTP)."""
+
+    if path_args:
+        files: List[Path] = []
+        for raw in path_args:
+            target = Path(raw)
+            if target.is_file():
+                files.append(target)
+            elif target.is_dir():
+                files.extend(_prometheus_dump_files(target))
+    else:
+        files = _prometheus_dump_files(RAW_PROMETHEUS_DIR)
+
+    if not files:
+        logger.warning("PROMETHEUS: локальные дампы не найдены в %s", RAW_PROMETHEUS_DIR)
+        return []
+
+    sources: List[LoadedSource] = []
+    for file_path in files:
+        df = load_prometheus_dump(file_path)
+        name = file_path.stem
+        if name.startswith("raw_"):
+            name = name[len("raw_") :]
+        sources.append(
+            LoadedSource(name=name, dataframe=df, source_path=file_path)
+        )
+    logger.info("PROMETHEUS: загружено %d локальных дампов", len(sources))
+    return sources
 
 
 def _prometheus_sources(
@@ -141,7 +229,7 @@ def _prometheus_sources(
     step_seconds: int,
     range_seconds: int,
 ) -> List[LoadedSource]:
-    """Собрать источники Prometheus по списку PromQL-запросов."""
+    """Собрать источники Prometheus по списку PromQL-запросов (живой API)."""
 
     if not url or not queries:
         return []
@@ -179,11 +267,23 @@ def collect_sources(args: argparse.Namespace) -> tuple[List[LoadedSource], int]:
         sources: List[LoadedSource] = []
         sources += _nab_sources(args.nab)
         sources += _kpi_sources(args.kpi)
-        sources += _prometheus_sources(
-            args.prom_url, args.prom_query, args.step, args.range_seconds
-        )
-        if not args.prom_url or not args.prom_query:
-            logger.info("ALL: Prometheus пропущен (не заданы --prom-url/--prom-query)")
+        if args.prom_url and args.prom_query:
+            sources += _prometheus_sources(
+                args.prom_url, args.prom_query, args.step, args.range_seconds
+            )
+        else:
+            local = _prometheus_local_sources()
+            sources += local
+            if local:
+                logger.info(
+                    "ALL: Prometheus из локальных дампов %s (живой API не вызывается)",
+                    RAW_PROMETHEUS_DIR,
+                )
+            else:
+                logger.info(
+                    "ALL: Prometheus пропущен (нет дампов в %s и не заданы --prom-url/--prom-query)",
+                    RAW_PROMETHEUS_DIR,
+                )
         return sources, len(sources)
 
     raise ValueError(f"Неизвестная команда: {args.command}")

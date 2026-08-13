@@ -33,6 +33,9 @@ class LoadedSource:
 
     name: str
     dataframe: pd.DataFrame
+    #: Файл, из которого загружены данные (если источник — файл на диске).
+    #: Нужен, чтобы конвейер не перезаписал собственный вход на уровне RAW.
+    source_path: Optional[Path] = None
 
 
 @dataclass
@@ -67,6 +70,17 @@ def _slugify(name: str) -> str:
 
     slug = re.sub(r"[^0-9A-Za-z_.-]+", "_", name.strip())
     return slug.strip("_") or "source"
+
+
+def _is_same_file(left: Optional[Path], right: Path) -> bool:
+    """Проверить, указывают ли пути на один и тот же существующий файл."""
+
+    if left is None:
+        return False
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return False
 
 
 def _source_label(df: pd.DataFrame) -> str:
@@ -118,7 +132,12 @@ def run_pipeline(
 
         # --- RAW: сохраняем как есть (в подкаталоге источника) ---
         raw_path = paths.raw_source_dir(src_label) / f"raw_{slug}.parquet"
-        save_parquet(raw_df, raw_path)
+        if _is_same_file(source.source_path, raw_path):
+            # Дампы Prometheus уже лежат по этому пути и лежат в git:
+            # перезапись затёрла бы исходные данные результатом обработки.
+            logger.info("RAW: %s уже является исходным файлом, не перезаписываем", raw_path)
+        else:
+            save_parquet(raw_df, raw_path)
         raw_frames.append(raw_df)
 
         # --- PROCESSED: очистка и нормализация (в подкаталоге источника) ---
