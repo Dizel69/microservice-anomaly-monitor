@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ETL-конвейер подготовки данных{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="page-header">
+    <h1>ETL-конвейер подготовки данных <span class="thin">(мониторинг микросервисов)</span></h1>
+    <p class="lead">
+      Схема конвейера и его артефакты. Интерфейс только читает файлы с диска:
+      конвейер отсюда не запускается, модели не обучаются, снимок
+      <code>reports/before/</code> не перезаписывается.
+    </p>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="page-footer">
+    Flask + Jinja2, схема — обычный SVG. Полный прогон конвейера выполняется в консоли:
+    <code>python main.py all</code>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,51 @@
+{# Схема конвейера: обычный SVG, клик по блоку — обычная ссылка (GET). #}
+<svg class="graph"
+     viewBox="0 0 {{ canvas_width }} {{ canvas_height }}"
+     xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="arrow-head" d="M 0 0 L 10 5 L 0 10 z"/>
+    </marker>
+  </defs>
+
+  {% for x, title in column_titles %}
+  <text class="col-title" x="{{ x }}" y="34">{{ title }}</text>
+  {% endfor %}
+
+  {% for edge in edges %}
+  <line class="edge{% if edge.dashed %} edge-dashed{% endif %}"
+        x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}"
+        marker-end="url(#arrow)"/>
+  {% if edge.label %}
+  <text class="edge-label" x="{{ edge.label_x }}" y="{{ edge.label_y }}">{{ edge.label }}</text>
+  {% endif %}
+  {% endfor %}
+
+  {% for node in nodes %}
+  {% set href = url_for('node_detail', node_id=node.id) %}
+  <a class="node node-{{ node.kind }}{% if node.id == selected_id %} node-selected{% endif %}"
+     href="{{ href }}" xlink:href="{{ href }}">
+    <rect x="{{ node.box.x }}" y="{{ node.box.y }}"
+          width="{{ node.box.w }}" height="{{ node.box.h }}" rx="10"/>
+    <text class="node-title" x="{{ node.box.x + 16 }}" y="{{ node.box.y + 33 }}">{{ node.title }}</text>
+    <text class="node-subtitle" x="{{ node.box.x + 16 }}" y="{{ node.box.y + 56 }}">{{ node.subtitle }}</text>
+    {% if node.id == prometheus_node_id %}
+    <text class="node-badge" x="{{ node.box.x + 16 }}" y="{{ node.box.y + 80 }}">режим: {{ prometheus_badge }}</text>
+    <text class="node-note" x="{{ node.box.x + 16 }}" y="{{ node.box.y + 102 }}">{{ prometheus_graph_note }}</text>
+    {% else %}
+    {% for line in node.lines %}
+    <text class="node-note" x="{{ node.box.x + 16 }}" y="{{ node.box.y + 78 + loop.index0 * 21 }}">{{ line }}</text>
+    {% endfor %}
+    {% endif %}
+  </a>
+  {% endfor %}
+</svg>
+
+<ul class="legend">
+  <li><span class="swatch swatch-input"></span>источник данных</li>
+  <li><span class="swatch swatch-stage"></span>шаг обработки</li>
+  <li><span class="swatch swatch-output"></span>артефакт на диске</li>
+  <li><span class="swatch swatch-selected"></span>выбранный узел</li>
+</ul>

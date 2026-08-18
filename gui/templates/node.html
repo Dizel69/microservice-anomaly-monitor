@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}{{ node.title }} — ETL-конвейер{% endblock %}
+
+{% macro file_groups(groups, empty_text) %}
+  {% if groups %}
+    {% for group in groups %}
+    <div class="file-group">
+      <h4>{{ group.label }} <span class="path">{{ group.location }}</span></h4>
+      {% if group.files %}
+      <table class="files">
+        <thead>
+          <tr><th>Файл</th><th>Путь</th><th>Размер</th><th>Изменён</th></tr>
+        </thead>
+        <tbody>
+          {% for item in group.files %}
+          <tr class="{{ 'row-ok' if item.exists else 'row-missing' }}">
+            <td>{{ item.name }}</td>
+            <td><code>{{ item.path }}</code></td>
+            <td>{{ item.size }}</td>
+            <td>{{ item.modified }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if group.hidden %}
+      <p class="hint">Показано {{ group.files|length }} из {{ group.total }}; ещё {{ group.hidden }} файлов такого же вида.</p>
+      {% endif %}
+      {% else %}
+      <p class="missing">{{ group.note }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="hint">{{ empty_text }}</p>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<nav class="breadcrumbs"><a href="{{ url_for('pipeline') }}">← Схема конвейера</a></nav>
+
+<section class="card">
+  <h2>{{ node.title }} <span class="kind">{{ kind_label }}</span></h2>
+  <p class="path-line"><code>{{ node.subtitle }}</code></p>
+  <h3>Назначение</h3>
+  <p class="purpose">{{ node.purpose }}</p>
+  {% if node.id == prometheus_node_id %}
+  <p class="mode-line">
+    Выбранный режим: <strong class="badge">{{ prometheus_badge }}</strong>
+    <span class="mode-note">— {{ prometheus_summary }}</span>
+  </p>
+  <p class="hint">Команда конвейера для этого выбора: <code>{{ command }}</code>
+    Переключить режим можно на <a href="{{ url_for('pipeline', _anchor='prometheus') }}">главной странице</a>.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h3>Входные файлы</h3>
+  {{ file_groups(inputs, "У этого узла нет входных файлов на диске: это начало конвейера или снимок для сравнения.") }}
+</section>
+
+<section class="card">
+  <h3>Выходные файлы</h3>
+  {{ file_groups(outputs, "Выходные файлы этого узла — графики, они показаны ниже галереей.") }}
+</section>
+
+<section class="card">
+  <h3>Лог прогона</h3>
+  {% if log_lines %}
+  <p class="hint">Файл <code>{{ log_path }}</code>, последние {{ log_lines|length }} строк.</p>
+  <pre class="log">{% for line in log_lines %}{{ line }}
+{% endfor %}</pre>
+  {% else %}
+  <p class="missing">Прогон ещё не логировался в GUI.</p>
+  <p class="hint">
+    Чтобы лог появился здесь, запустите конвейер в консоли с записью вывода в
+    <code>{{ log_hint_dir }}</code>:
+  </p>
+  <pre class="command">python main.py all 2&gt;&amp;1 | tee {{ log_hint_dir }}/etl.log</pre>
+  {% endif %}
+</section>
+
+{% if gallery is not none %}
+<section class="card">
+  <h3>Графики</h3>
+  {% if node.gallery == 'before' %}
+  <p class="hint warn">Снимок для выступления. Конвейер в этот каталог не пишет, интерфейс — тоже.</p>
+  {% endif %}
+  {% if gallery %}
+    {% for group in gallery %}
+    <h4 class="gallery-title">{{ group.source }}</h4>
+    {% if group.images %}
+    <div class="gallery">
+      {% for image in group.images %}
+      <figure>
+        <a href="{{ image.url }}"><img src="{{ image.url }}" alt="{{ image.title }} — {{ group.source }}"></a>
+        <figcaption>{{ image.title }}<br><span class="meta">{{ image.size }} · {{ image.modified }}</span></figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="missing">нет (ещё не собрано)</p>
+    {% endif %}
+    {% endfor %}
+  {% else %}
+  <p class="missing">Каталог отчётов пуст — нет (ещё не собрано).</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Положение шага на схеме</h3>
+  {% include "_graph.html" %}
+</section>
+{% endblock %}

@@ -53,3 +53,7 @@ datasets/raw/**/*.parquet
 
 # Несжатый KPI превышает лимит GitHub
 datasets/raw/KPI/phase2_train.csv
+
+# Демо-GUI: выбор режима Prometheus и логи прогонов — локальные, не в git
+gui/state.json
+gui/logs/*.log

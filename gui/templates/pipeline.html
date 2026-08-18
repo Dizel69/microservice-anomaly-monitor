@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <h2>Схема конвейера</h2>
+  <p class="hint">
+    Нажмите на любой блок — откроется назначение шага, список входных и выходных
+    файлов (путь, размер, дата) и фрагмент лога прогона.
+  </p>
+  {% include "_graph.html" %}
+</section>
+
+<section class="card" id="prometheus">
+  <h2>Источник Prometheus</h2>
+  <p class="mode-line">
+    Текущий режим: <strong class="badge">{{ prometheus_badge }}</strong>
+    <span class="mode-note">— {{ prometheus_summary }}</span>
+  </p>
+
+  <form class="prom-form" method="post" action="{{ url_for('prometheus_mode') }}">
+    <fieldset>
+      <legend>Откуда конвейер берёт метрики</legend>
+      <label class="radio">
+        <input type="radio" name="mode" value="local" {% if state.mode == 'local' %}checked{% endif %}>
+        Локальные данные (<code>datasets/raw/PROMETHEUS/*.parquet</code>)
+      </label>
+      <label class="radio">
+        <input type="radio" name="mode" value="http" {% if state.mode == 'http' %}checked{% endif %}>
+        HTTP API живого сервера Prometheus
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Параметры HTTP API (нужны только для режима URL)</legend>
+      <div class="fields">
+        <label class="field field-wide">
+          Адрес сервера
+          <input type="text" name="url" value="{{ state.url }}" placeholder="http://185.28.85.183:9090">
+        </label>
+        <label class="field field-wide">
+          Запрос PromQL
+          <input type="text" name="query" value="{{ state.query }}" placeholder="node_cpu_seconds_total">
+        </label>
+        <label class="field">
+          Шаг, с
+          <input type="text" name="step" value="{{ state.step }}" inputmode="numeric">
+        </label>
+        <label class="field">
+          Диапазон, с
+          <input type="text" name="range" value="{{ state.range }}" inputmode="numeric">
+        </label>
+      </div>
+    </fieldset>
+
+    <button type="submit">Сохранить выбор</button>
+  </form>
+
+  <p class="hint">
+    Выбор сохраняется в <code>gui/state.json</code> и сразу виден на схеме у блока
+    Prometheus. Сам интерфейс в сеть не обращается — он показывает, с чем будет
+    запущен конвейер:
+  </p>
+  <pre class="command">{{ command }}</pre>
+</section>
+
+<section class="card">
+  <h2>Что смотреть на защите</h2>
+  <ul class="plain-list">
+    <li>
+      <a href="{{ url_for('node_detail', node_id='reports-before') }}">Графики before</a>
+      — снимок «как было»: у NAB нет ни одной аномалии, у части рядов метрика
+      <code>unknown_metric</code>.
+    </li>
+    <li>
+      <a href="{{ url_for('node_detail', node_id='reports-current') }}">Графики current</a>
+      — то же после исправления данных: разметка NAB подхвачена из окон аномалий,
+      имена метрик определены.
+    </li>
+    <li>
+      <a href="{{ url_for('node_detail', node_id='ml') }}">ML-набор</a>
+      — конечный артефакт конвейера, вход для алгоритмов обнаружения аномалий.
+    </li>
+  </ul>
+</section>
+{% endblock %}

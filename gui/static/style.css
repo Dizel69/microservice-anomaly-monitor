@@ -1,0 +1,454 @@
+/* Оформление демонстрационного GUI: светлая тема, крупный текст для проектора,
+   без анимаций и без JavaScript. */
+
+:root {
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --ink: #16202b;
+  --ink-soft: #4a5568;
+  --line: #cbd5e0;
+  --accent: #1f6feb;
+  --input-fill: #e8f1fd;
+  --stage-fill: #fff6e5;
+  --output-fill: #e9f7ee;
+  --selected: #c53030;
+  --warn: #9c4221;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 24px 40px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "DejaVu Sans", "Segoe UI", Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.page-header {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px 0 8px;
+}
+
+.page-header h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+  line-height: 1.2;
+}
+
+.page-header .thin {
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.lead {
+  margin: 0;
+  max-width: 1000px;
+  color: var(--ink-soft);
+}
+
+main {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.page-footer {
+  max-width: 1320px;
+  margin: 24px auto 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 20px 0;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 25px;
+}
+
+h3 {
+  margin: 20px 0 8px;
+  font-size: 20px;
+}
+
+h4 {
+  margin: 16px 0 6px;
+  font-size: 17px;
+}
+
+code {
+  font-family: "DejaVu Sans Mono", Consolas, monospace;
+  font-size: 0.92em;
+  background: #eef1f5;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+a {
+  color: var(--accent);
+}
+
+.hint {
+  color: var(--ink-soft);
+  font-size: 15px;
+  margin: 8px 0;
+}
+
+.hint.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.missing {
+  color: var(--warn);
+  font-weight: 600;
+  margin: 6px 0;
+}
+
+.purpose {
+  max-width: 1000px;
+  margin: 0;
+}
+
+.breadcrumbs {
+  margin: 20px 0 0;
+  font-size: 17px;
+}
+
+.kind {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink-soft);
+  vertical-align: middle;
+}
+
+.path-line {
+  margin: 0 0 8px;
+}
+
+.plain-list {
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+
+.plain-list li {
+  margin-bottom: 8px;
+}
+
+/* --- Схема (SVG) --- */
+.graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 8px 0 4px;
+}
+
+.graph .col-title {
+  font-size: 15px;
+  font-weight: 700;
+  fill: var(--ink-soft);
+  letter-spacing: 1.5px;
+}
+
+.graph .node rect {
+  fill: var(--card);
+  stroke: var(--ink-soft);
+  stroke-width: 2;
+}
+
+.graph .node-input rect {
+  fill: var(--input-fill);
+  stroke: var(--accent);
+}
+
+.graph .node-stage rect {
+  fill: var(--stage-fill);
+  stroke: #b7791f;
+}
+
+.graph .node-output rect {
+  fill: var(--output-fill);
+  stroke: #2f855a;
+}
+
+.graph .node-selected rect {
+  stroke: var(--selected);
+  stroke-width: 5;
+}
+
+.graph .node text {
+  text-decoration: none;
+}
+
+.graph .node-title {
+  font-size: 21px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.graph .node-subtitle {
+  font-size: 14px;
+  fill: var(--ink-soft);
+}
+
+.graph .node-note {
+  font-size: 13px;
+  fill: var(--ink-soft);
+}
+
+.graph .node-badge {
+  font-size: 16px;
+  font-weight: 700;
+  fill: var(--selected);
+}
+
+.graph .edge {
+  stroke: var(--ink-soft);
+  stroke-width: 2.5;
+  fill: none;
+}
+
+.graph .edge-dashed {
+  stroke-dasharray: 8 6;
+}
+
+.graph .edge-label {
+  font-size: 13px;
+  fill: var(--ink-soft);
+  text-anchor: middle;
+}
+
+.graph .arrow-head {
+  fill: var(--ink-soft);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 20px;
+  height: 14px;
+  border: 2px solid var(--ink-soft);
+  border-radius: 3px;
+}
+
+.swatch-input {
+  background: var(--input-fill);
+  border-color: var(--accent);
+}
+
+.swatch-stage {
+  background: var(--stage-fill);
+  border-color: #b7791f;
+}
+
+.swatch-output {
+  background: var(--output-fill);
+  border-color: #2f855a;
+}
+
+.swatch-selected {
+  background: var(--card);
+  border-color: var(--selected);
+  border-width: 3px;
+}
+
+/* --- Форма Prometheus --- */
+.mode-line {
+  margin: 4px 0 12px;
+  font-size: 18px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 12px;
+  border: 2px solid var(--selected);
+  border-radius: 6px;
+  color: var(--selected);
+  letter-spacing: 1px;
+}
+
+.mode-note {
+  color: var(--ink-soft);
+}
+
+.prom-form fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0 0 16px;
+  padding: 12px 16px 16px;
+}
+
+.prom-form legend {
+  padding: 0 6px;
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+
+.radio {
+  display: block;
+  margin: 6px 0;
+}
+
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 15px;
+  color: var(--ink-soft);
+  min-width: 130px;
+}
+
+.field-wide {
+  flex: 1 1 320px;
+}
+
+.field input {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 16px;
+  font-family: inherit;
+  color: var(--ink);
+}
+
+button {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 17px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* --- Таблицы файлов и логи --- */
+.file-group {
+  margin-bottom: 18px;
+}
+
+.file-group .path {
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+table.files {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+table.files th,
+table.files td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+table.files th {
+  color: var(--ink-soft);
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+tr.row-missing td {
+  color: var(--warn);
+}
+
+pre.log,
+pre.command {
+  background: #1e2430;
+  color: #e8edf4;
+  padding: 12px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: "DejaVu Sans Mono", Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 8px 0;
+}
+
+pre.log {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* --- Галерея графиков --- */
+.gallery-title {
+  margin-top: 20px;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ink-soft);
+}
+
+.gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.gallery figure {
+  margin: 0;
+  width: 320px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--card);
+}
+
+.gallery img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.gallery figcaption {
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.gallery .meta {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
