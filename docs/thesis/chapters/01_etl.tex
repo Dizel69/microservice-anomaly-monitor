@@ -1,0 +1,84 @@
+Конвейер решает задачу унификации разнородных источников телеметрии для последующего обучения детекторов аномалий.
+Реализация~--- модульный ETL на Python~3.12 с тремя уровнями хранения (RAW / PROCESSED / UNIFIED), что соответствует практике medallion architecture и обеспечивает воспроизводимость преобразований.
+
+\section{Источники и единая схема}
+
+Используются три источника с разными ролями в исследовании (не три одинаковые обучающие выборки).
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{llp{7.2cm}}
+\toprule
+Источник & Метки & Роль \\
+\midrule
+NAB \cite{numenta-nab} & окна аномалий $0/1$ & публичный бенчмарк, сравнение с литературой \\
+KPI \cite{kpi-ad} & метки организаторов $0/1$ & основная количественная оценка, train/test \\
+Prometheus \cite{prometheus} & нет ($-1$) & промышленная телеметрия, вход будущего сервиса \\
+\bottomrule
+\end{tabular}
+\caption{Роли источников данных.}
+\end{table}
+
+Все источники приводятся к шести колонкам:
+\texttt{timestamp}, \texttt{service}, \texttt{metric\_name}, \texttt{value}, \texttt{label}, \texttt{source}.
+Для Prometheus на уровне RAW дополнительно сохраняется JSON меток серии, чтобы не терять контекст \texttt{job}/\texttt{instance}/\texttt{cpu}/\texttt{mode}.
+
+Метка \texttt{label} принимает значения $0$ (норма), $1$ (аномалия) и $-1$ (неизвестно).
+Точки с $\texttt{label}=-1$ не участвуют в расчёте precision, recall и PR-AUC.
+
+\section{Архитектура конвейера}
+
+Слои и соответствующие модули:
+
+\begin{itemize}
+  \item извлечение~--- \texttt{etl/loaders/} (NAB, KPI, Prometheus, в том числе чтение локальных parquet-дампов);
+  \item нормализация~--- \texttt{normalize\_dataframe()}: типы, удаление NaN и дубликатов, сортировка по времени;
+  \item признаки~--- скользящие статистики и разности по каждому ряду $(\texttt{source}, \texttt{service}, \texttt{metric\_name})$;
+  \item хранение~--- Apache Parquet (основной формат) и CSV-экспорт;
+  \item оркестрация~--- \texttt{etl/pipeline.py}, точка входа \texttt{main.py}.
+\end{itemize}
+
+По умолчанию команда \texttt{python main.py all} читает Prometheus из локальных файлов \texttt{datasets/raw/PROMETHEUS/} и не обращается к HTTP API.
+Живой сервер подключается только при явном \texttt{--prom-url}.
+
+\section{Инженерия признаков}
+
+По каждому временному ряду после сортировки по времени рассчитываются
+\texttt{rolling\_mean\_5}, \texttt{rolling\_mean\_15},
+\texttt{rolling\_std\_5}, \texttt{rolling\_std\_15},
+\texttt{rolling\_min\_5}, \texttt{rolling\_max\_5},
+приращение $\Delta x_t = x_t - x_{t-1}$ и относительное изменение.
+Окна независимы между рядами: смешение статистик NAB, KPI и Prometheus недопустимо.
+
+Итоговый \texttt{ml\_dataset} не содержит пропусков в признаковых колонках и предназначен для алгоритмов Isolation Forest~\cite{liu2008isolation}, LOF~\cite{breunig2000lof} и One-Class SVM~\cite{scholkopf2001ocsvm}.
+
+\section{Результаты этапа ETL}
+
+После исправления загрузчиков и разметки NAB (окна \texttt{combined\_windows.json}, раздельные загрузчики NAB/KPI, канонизация имён метрик по токенам) полный прогон дал следующий набор.
+
+\begin{table}[ht]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Источник & Строк & Аномалий ($\texttt{label}=1$) \\
+\midrule
+NAB & 365\,541 & 33\,495 \\
+KPI & 5\,922\,913 & 134\,114 \\
+Prometheus & 4\,097 & 0 (все $\texttt{label}=-1$) \\
+\midrule
+Всего & 6\,292\,551 & --- \\
+\bottomrule
+\end{tabular}
+\caption{Состав unified-набора после исправления конвейера (август 2026~г.).}
+\end{table}
+
+Автотесты фиксируют контракт схемы и разделение источников; на момент черновика комплект тестов зелёный (76 тестов).
+Графики прогонов сохраняются в \texttt{reports/current/}; каталог \texttt{reports/before/}~--- снимок <<до улучшения>> для демонстрации и конвейером не перезаписывается.
+
+Демонстрационный веб-интерфейс (\texttt{gui/app.py}) показывает схему конвейера и артефакты, но не запускает ETL и не обучает модели.
+
+\section{Ограничения, важные для главы~2}
+
+Файл KPI объединяет train и test в одном unified-наборе; при оценке моделей необходим сплит по времени (и по файлам \texttt{phase2\_train} / \texttt{phase2\_ground\_truth}), а не случайное перемешивание.
+Prometheus нельзя включать в таблицу качества с учителем.
+Перенос в LaTeX цифр из промежуточного Word-отчёта НИР-1 (около $2{,}8$~млн строк NAB) недопустим: они относятся к сломанному прогону до исправления меток.

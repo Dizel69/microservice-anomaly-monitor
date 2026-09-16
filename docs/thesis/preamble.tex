@@ -1,0 +1,33 @@
+% Черновик преамбулы. Когда появится шаблон кафедры --- подменить этот файл,
+% главы в chapters/ оставляем.
+\documentclass[14pt,a4paper,oneside]{extreport}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english,russian]{babel}
+\usepackage{setspace}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{amsmath,amssymb}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{csquotes}
+\usepackage{indentfirst}
+\usepackage[numbers,sort&compress]{natbib}
+
+\geometry{left=3cm,right=1.5cm,top=2cm,bottom=2cm}
+\onehalfspacing
+\setlist[itemize]{nosep,leftmargin=1.5em}
+\setlist[enumerate]{nosep,leftmargin=1.5em}
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue}
+
+\graphicspath{{../../reports/current/}{../../reports/before/}}
+
+\newcommand{\thesistitle}{Разработка системы мониторинга микросервисов с элементами машинного обучения}
+\newcommand{\thesisauthor}{Синев Денис Евгеньевич}
+\newcommand{\thesisadvisor}{Секорин Всеслав Станиславович}

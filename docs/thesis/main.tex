@@ -1,0 +1,48 @@
+\input{preamble}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+{\large Министерство науки и высшего образования Российской Федерации}\\[0.4em]
+{\large ФГБОУ ВО <<Тверской государственный университет>>}\\[0.4em]
+{\large Факультет прикладной математики и кибернетики}\\[2.5cm]
+{\Large \textbf{МАГИСТЕРСКАЯ ДИССЕРТАЦИЯ}}\\[1.2cm]
+{\large Направление 01.04.02 --- Прикладная математика и информатика}\\[0.3em]
+{\large Профиль <<Системное программирование>>}\\[1.5cm]
+{\Large\bfseries \thesistitle}\\[2.5cm]
+\begin{flushright}
+\begin{minipage}{0.62\textwidth}
+Автор: \thesisauthor\\[0.6em]
+Научный руководитель:\\
+\thesisadvisor
+\end{minipage}
+\end{flushright}
+\vfill
+{\large Тверь --- 2027}
+\end{titlepage}
+
+\tableofcontents
+
+\chapter*{Введение}
+\addcontentsline{toc}{chapter}{Введение}
+\input{chapters/00_intro}
+
+\chapter{Подготовка данных для обнаружения аномалий}
+\input{chapters/01_etl}
+
+\chapter{Сравнительное исследование моделей}
+\input{chapters/02_experiment}
+
+\chapter{Программная система мониторинга}
+\input{chapters/03_software}
+
+\chapter*{Заключение}
+\addcontentsline{toc}{chapter}{Заключение}
+\input{chapters/04_conclusion}
+
+% Стиль ГОСТ подставим вместе с шаблоном кафедры; пока portable plainnat.
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

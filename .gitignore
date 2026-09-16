@@ -29,7 +29,11 @@ htmlcov/
 # Системные файлы
 .DS_Store
 
-# Личные документы (отчёты НИР) — не в публичный репозиторий
+# Личный контекст агента-менеджера (история проекта, не в публичный репозиторий)
+AGENT_CONTEXT.md
+
+# Личные документы (отчёты НИР / промежуточные Word) — не в публичный репозиторий
+# Первый отчёт: docs/reports/01_первый_отчёт.docx
 *.docx
 
 # ---------------------------------------------------------------------------
@@ -57,3 +61,28 @@ datasets/raw/KPI/phase2_train.csv
 # Демо-GUI: выбор режима Prometheus и логи прогонов — локальные, не в git
 gui/state.json
 gui/logs/*.log
+
+# Рабочие выгрузки Zabbix / большой live-Prometheus — не в публичный GitHub
+# (маленькие демо-дампы PROMETHEUS/*.parquet по-прежнему в git)
+datasets/raw/ZABBIX/**
+!datasets/raw/ZABBIX/.gitkeep
+datasets/raw/PROMETHEUS/live/**
+!datasets/raw/PROMETHEUS/live/.gitkeep
+
+# Сборка LaTeX (исходники docs/thesis/*.tex в git; PDF по желанию)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+*.xdv
+docs/thesis/_build/

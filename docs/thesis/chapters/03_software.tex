@@ -1,0 +1,32 @@
+Целевой артефакт~--- не ETL и не GUI для защиты, а лёгкий сервис, который ставится рядом с уже существующим мониторингом.
+
+\section{Требования}
+
+\begin{itemize}
+  \item источник метрик задаётся конфигом, а не кодом (Prometheus URL + PromQL либо Zabbix API);
+  \item те же признаки, что в ETL, на коротком окне последних $N$ точек;
+  \item сохранённая модель (joblib / ONNX);
+  \item алерт в произвольный канал через webhook;
+  \item поставка Docker-образом без GUI и без прогона миллионов строк pandas.
+\end{itemize}
+
+\section{Контур конфигурации}
+
+Черновик контракта (реализация~--- после выбора модели):
+
+\begin{verbatim}
+source:
+  type: prometheus   # или zabbix
+  url: http://prometheus:9090
+  scrape_interval_sec: 30
+  queries: [...]
+sink:
+  type: webhook
+  url: https://example.invalid/alert
+model:
+  path: /models/detector.joblib
+  window: 15
+\end{verbatim}
+
+Zabbix подключается вторым коннектором в ту же внутреннюю схему из шести колонок.
+Крупные рабочие выгрузки не коммитятся в публичный репозиторий: каталоги \texttt{datasets/raw/ZABBIX/} и \texttt{datasets/raw/PROMETHEUS/live/}.
