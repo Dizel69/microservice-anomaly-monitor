@@ -5,14 +5,23 @@
     # один файл, несколько файлов или каталог (сканируется рекурсивно)
     python main.py nab [пути ...]
     python main.py kpi [пути ...]
+    python main.py zabbix [пути ...]
+
+    # Prometheus: локальные дампы (включая live/**/*.parquet) без HTTP
+    python main.py prometheus
+    python main.py prometheus datasets/raw/PROMETHEUS/live/app_events.parquet
+
+    # Prometheus: живой HTTP API (только если явно указан URL)
     python main.py prometheus http://185.28.85.183:9090 container_cpu_usage_seconds_total
 
-    # общий запуск: NAB + KPI + локальные дампы Prometheus (без HTTP)
+    # общий запуск: NAB + KPI + локальные дампы Prometheus/Zabbix (без HTTP)
     python main.py all
 
-Если для ``nab``/``kpi`` не указать пути, сканируются каталоги по умолчанию
-(``datasets/raw/NAB`` и ``datasets/raw/KPI`` соответственно), включая вложенные
-папки.
+Если для ``nab``/``kpi``/``zabbix`` не указать пути, сканируются каталоги
+по умолчанию (``datasets/raw/NAB``, ``KPI``, ``ZABBIX``), включая вложенные
+папки. Для ``prometheus`` без URL — ``datasets/raw/PROMETHEUS`` рекурсивно
+(live/ тоже). Все parquet одного источника склеиваются в один кадр, чтобы
+не строить сотни отдельных отчётов.
 
 Конвейер реализует три уровня данных (RAW -> PROCESSED -> UNIFIED), формирует
 ML-набор признаков, сохраняет результаты в Apache Parquet (+ CSV-экспорт) и
@@ -27,19 +36,28 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+import pandas as pd
+
 from etl.config import (
     DEFAULT_PATHS,
     RAW_KPI_DIR,
     RAW_NAB_DIR,
     RAW_PROMETHEUS_DIR,
+    RAW_ZABBIX_DIR,
 )
-from etl.discovery import collect_csv_files
+from etl.discovery import collect_csv_files, collect_dump_files
 from etl.labels.nab_labels import (
     NabWindowIndex,
     find_nab_labels_dir,
     load_nab_windows,
 )
-from etl.loaders import load_kpi, load_nab, load_prometheus, load_prometheus_dump
+from etl.loaders import (
+    load_kpi,
+    load_nab,
+    load_prometheus,
+    load_prometheus_dump,
+    load_zabbix_dump,
+)
 from etl.logging_config import configure_logging, get_logger
 from etl.pipeline import LoadedSource, PipelineResult, run_pipeline
 
@@ -52,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="main.py",
         description=(
-            "ETL-конвейер: загрузка источников (NAB/KPI/Prometheus), нормализация, "
+            "ETL-конвейер: загрузка источников (NAB/KPI/Prometheus/Zabbix), нормализация, "
             "инженерия признаков, экспорт (Parquet/CSV) и визуализация."
         ),
     )
@@ -79,17 +97,37 @@ def build_parser() -> argparse.ArgumentParser:
         "paths", nargs="*", type=str, help="Пути к CSV-файлам или каталогам KPI."
     )
 
-    prom = subparsers.add_parser(
-        "prometheus", help="Выгрузить временные ряды из Prometheus HTTP API."
+    zabbix = subparsers.add_parser(
+        "zabbix",
+        help="Загрузить Zabbix: parquet/csv (по умолчанию datasets/raw/ZABBIX).",
     )
-    prom.add_argument("url", type=str, help="Базовый URL Prometheus.")
+    zabbix.add_argument(
+        "paths",
+        nargs="*",
+        type=str,
+        help="Пути к parquet/csv или каталогам (файлы .dump пропускаются).",
+    )
+
+    prom = subparsers.add_parser(
+        "prometheus",
+        help=(
+            "Локальные дампы Prometheus (без аргументов) либо HTTP: "
+            "URL и PromQL-запросы."
+        ),
+    )
     prom.add_argument(
-        "queries", nargs="+", type=str, help="Один или несколько PromQL-запросов."
+        "targets",
+        nargs="*",
+        type=str,
+        help=(
+            "Пути к parquet/csv (локальный режим) либо URL Prometheus и "
+            "один или несколько PromQL-запросов."
+        ),
     )
     _add_prom_options(prom)
 
     allcmd = subparsers.add_parser(
-        "all", help="Общий запуск по трём источникам -> единый ML-набор."
+        "all", help="Общий запуск по источникам -> единый ML-набор."
     )
     allcmd.add_argument(
         "--nab", nargs="*", type=str, default=None,
@@ -98,6 +136,10 @@ def build_parser() -> argparse.ArgumentParser:
     allcmd.add_argument(
         "--kpi", nargs="*", type=str, default=None,
         help="Пути KPI (по умолчанию datasets/raw/KPI).",
+    )
+    allcmd.add_argument(
+        "--zabbix", nargs="*", type=str, default=None,
+        help="Пути Zabbix parquet (по умолчанию datasets/raw/ZABBIX).",
     )
     allcmd.add_argument("--prom-url", type=str, default=None, help="URL Prometheus.")
     allcmd.add_argument(
@@ -177,32 +219,42 @@ def _kpi_sources(path_args: Optional[List[str]]) -> List[LoadedSource]:
     ]
 
 
-def _prometheus_dump_files(directory: Path) -> List[Path]:
-    """Найти локальные дампы Prometheus (parquet/csv) в каталоге."""
+def _looks_like_url(text: str) -> bool:
+    """Отличить живой URL Prometheus от пути к локальному дампу."""
 
-    if not directory.is_dir():
+    lowered = text.strip().lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _concat_loaded_dumps(frames: List[pd.DataFrame]) -> pd.DataFrame:
+    """Склеить загруженные дампы в один кадр (один source → один отчёт)."""
+
+    nonempty = [frame for frame in frames if frame is not None and not frame.empty]
+    if not nonempty:
+        return pd.DataFrame()
+    return pd.concat(nonempty, ignore_index=True)
+
+
+def _prometheus_dump_files(directory: Path) -> List[Path]:
+    """Найти локальные дампы Prometheus (parquet/csv) рекурсивно, без *_bucket/_created."""
+
+    if not directory.exists():
         return []
-    files = sorted(
-        p
-        for p in directory.iterdir()
-        if p.is_file() and p.suffix.lower() in {".parquet", ".csv"}
-    )
-    return files
+    return collect_dump_files([directory], skip_histogram_remnants=True)
 
 
 def _prometheus_local_sources(
     path_args: Optional[List[str]] = None,
 ) -> List[LoadedSource]:
-    """Загрузить ранее скачанные дампы из datasets/raw/PROMETHEUS (без HTTP)."""
+    """Загрузить дампы из datasets/raw/PROMETHEUS (включая live/) без HTTP.
+
+    Все найденные файлы читаются по одному (qualify_metric_names — внутри файла,
+    префикс ``job__`` в имени файла не трогает колонки) и склеиваются в один
+    LoadedSource, чтобы конвейер не строил сотни графиков.
+    """
 
     if path_args:
-        files: List[Path] = []
-        for raw in path_args:
-            target = Path(raw)
-            if target.is_file():
-                files.append(target)
-            elif target.is_dir():
-                files.extend(_prometheus_dump_files(target))
+        files = collect_dump_files(path_args, skip_histogram_remnants=True)
     else:
         files = _prometheus_dump_files(RAW_PROMETHEUS_DIR)
 
@@ -210,17 +262,57 @@ def _prometheus_local_sources(
         logger.warning("PROMETHEUS: локальные дампы не найдены в %s", RAW_PROMETHEUS_DIR)
         return []
 
-    sources: List[LoadedSource] = []
+    frames: List[pd.DataFrame] = []
     for file_path in files:
-        df = load_prometheus_dump(file_path)
-        name = file_path.stem
-        if name.startswith("raw_"):
-            name = name[len("raw_") :]
-        sources.append(
-            LoadedSource(name=name, dataframe=df, source_path=file_path)
+        frames.append(load_prometheus_dump(file_path))
+    combined = _concat_loaded_dumps(frames)
+    if combined.empty:
+        logger.warning("PROMETHEUS: дампы прочитаны, но строк нет")
+        return []
+
+    logger.info(
+        "PROMETHEUS: склеено %d точек из %d дампов в один источник",
+        len(combined),
+        len(files),
+    )
+    return [
+        LoadedSource(
+            name="prometheus",
+            dataframe=combined,
+            persist_raw=False,
         )
-    logger.info("PROMETHEUS: загружено %d локальных дампов", len(sources))
-    return sources
+    ]
+
+
+def _zabbix_sources(path_args: Optional[List[str]] = None) -> List[LoadedSource]:
+    """Собрать parquet/csv Zabbix (не .dump) в один источник."""
+
+    targets = path_args if path_args else [RAW_ZABBIX_DIR]
+    files = collect_dump_files(targets, skip_histogram_remnants=False)
+    if not files:
+        logger.warning("ZABBIX: не найдено parquet/csv в %s", targets)
+        return []
+
+    frames: List[pd.DataFrame] = []
+    for file_path in files:
+        frames.append(load_zabbix_dump(file_path))
+    combined = _concat_loaded_dumps(frames)
+    if combined.empty:
+        logger.warning("ZABBIX: дампы прочитаны, но строк нет")
+        return []
+
+    logger.info(
+        "ZABBIX: склеено %d точек из %d дампов в один источник",
+        len(combined),
+        len(files),
+    )
+    return [
+        LoadedSource(
+            name="zabbix",
+            dataframe=combined,
+            persist_raw=False,
+        )
+    ]
 
 
 def _prometheus_sources(
@@ -258,9 +350,21 @@ def collect_sources(args: argparse.Namespace) -> tuple[List[LoadedSource], int]:
         return sources, len(sources)
 
     if args.command == "prometheus":
-        sources = _prometheus_sources(
-            args.url, args.queries, args.step, args.range_seconds
-        )
+        targets = list(args.targets or [])
+        if targets and _looks_like_url(targets[0]):
+            queries = targets[1:]
+            if not queries:
+                logger.error("Для HTTP-режима Prometheus укажите хотя бы один PromQL-запрос")
+                return [], 0
+            sources = _prometheus_sources(
+                targets[0], queries, args.step, args.range_seconds
+            )
+            return sources, len(sources)
+        local = _prometheus_local_sources(targets or None)
+        return local, len(local)
+
+    if args.command == "zabbix":
+        sources = _zabbix_sources(args.paths)
         return sources, len(sources)
 
     if args.command == "all":
@@ -284,6 +388,7 @@ def collect_sources(args: argparse.Namespace) -> tuple[List[LoadedSource], int]:
                     "ALL: Prometheus пропущен (нет дампов в %s и не заданы --prom-url/--prom-query)",
                     RAW_PROMETHEUS_DIR,
                 )
+        sources += _zabbix_sources(args.zabbix)
         return sources, len(sources)
 
     raise ValueError(f"Неизвестная команда: {args.command}")

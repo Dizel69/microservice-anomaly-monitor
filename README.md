@@ -35,12 +35,12 @@
 признаков, графиков) и сопровождение.
 
 ```
-                 ┌──────────────────────────────────────────────┐
-   Источники     │  NAB        KPI        Prometheus (HTTP API)  │
-                 └───────┬─────────┬───────────────┬─────────────┘
-                         │         │               │
-                 ┌───────▼─────────▼───────────────▼─────────────┐
-   loaders/      │  nab_loader   kpi_loader   prometheus_loader   │  → RAW
+                 ┌──────────────────────────────────────────────────────────┐
+   Источники     │  NAB   KPI   Prometheus (дампы / HTTP)   Zabbix (дампы)   │
+                 └───────┬────────┬──────────────┬──────────────────────────┘
+                         │        │              │
+                 ┌───────▼────────▼──────────────▼──────────────────────────┐
+   loaders/      │  nab   kpi   prometheus_loader   zabbix_loader            │  → RAW
                  └───────────────────────┬──────────────────────┘
                                          │
                  ┌───────────────────────▼──────────────────────┐
@@ -78,7 +78,8 @@
 datasets/raw/
 ├── NAB/          # сюда все CSV NAB (можно во вложенных папках)
 ├── KPI/          # сюда все CSV KPI (Finals_dataset)
-└── PROMETHEUS/   # для выгрузок Prometheus (опционально)
+├── PROMETHEUS/   # маленькие дампы + live/**/*.parquet
+└── ZABBIX/       # parquet после scripts/restore_zabbix_dumps.py
 ```
 
 При запуске `python main.py nab` (без аргументов) обрабатываются **все** CSV
@@ -99,7 +100,7 @@ datasets/raw/
 | `metric_name` | Тип метрики: инфраструктурные (`cpu_usage`, `memory_usage`, `disk_usage`, `network_traffic`, `http_latency`, `request_rate`, `error_rate`) и прикладные ряды NAB (`temperature`, `tweet_volume`, `taxi_demand`, `travel_time`, ...) |
 | `value`       | Числовое значение метрики                                                |
 | `label`       | Метка аномалии: `0` — норма, `1` — аномалия, `-1` — неизвестно           |
-| `source`      | Источник: `NAB`, `KPI`, `PROMETHEUS`                                     |
+| `source`      | Источник: `NAB`, `KPI`, `PROMETHEUS`, `ZABBIX`              |
 
 > Для Prometheus на уровне **RAW** дополнительно сохраняется колонка `labels`
 > (полный набор меток серии в формате JSON) — чтобы не терять информацию о типе
@@ -113,7 +114,8 @@ datasets/raw/
 |--------------|--------------------------------------------------------------|-----------------------------------|
 | NAB          | https://github.com/numenta/NAB                               | окна `labels/combined_windows.json` → `0`/`1` |
 | KPI          | https://github.com/NetManAIOps/KPI-Anomaly-Detection         | колонка `label` в CSV → `0`/`1`   |
-| Prometheus   | локальные дампы в `datasets/raw/PROMETHEUS/`                 | разметки нет → `-1`               |
+| Prometheus   | локальные дампы в `datasets/raw/PROMETHEUS/` (рекурсивно, `live/`) | разметки нет → `-1` |
+| Zabbix       | parquet в `datasets/raw/ZABBIX/` после restore dump          | разметки нет → `-1` |
 
 - **NAB**: `service` — имя файла; `metric_name` выводится из имени файла
   (`ec2_cpu_utilization_*.csv` → `cpu_usage`), а если эвристика не сработала —
@@ -125,6 +127,12 @@ datasets/raw/
   (`service`/`job`/`container`/`pod`/`instance`), `metric_name` —
   каноникализация `__name__`, уточнённая различающимися метками серии
   (`cpu_usage{cpu="0",mode="idle"}`), все исходные метки сохраняются в `labels`.
+  Каталог дампов сканируется **рекурсивно** (`live/**/*.parquet`); ошмётки
+  histogram (`*_bucket`, `*_created`) пропускаются. Все найденные файлы
+  склеиваются в один источник `PROMETHEUS`, чтобы не строить сотни отчётов.
+- **Zabbix**: `service` — `hosts.host`, `metric_name` — `items.key_`
+  (для trends с суффиксом `{grain="trend_avg"}`). History и trends не
+  смешиваются в один ряд. Разметки нет (`label = -1`).
 
 Загрузчики не взаимозаменяемы: файл KPI, поданный в NAB-загрузчик, отвергается
 с ошибкой, чтобы `source` не оказался перепутан.
@@ -235,7 +243,8 @@ microservice-anomaly-monitor/
 │   ├── loaders/
 │   │   ├── nab_loader.py
 │   │   ├── kpi_loader.py
-│   │   └── prometheus_loader.py
+│   │   ├── prometheus_loader.py
+│   │   └── zabbix_loader.py
 │   ├── transformers/
 │   │   └── normalize.py          # normalize_dataframe()
 │   ├── features/
@@ -246,7 +255,10 @@ microservice-anomaly-monitor/
 │   ├── raw/
 │   │   ├── NAB/                  # входные CSV NAB (+ sample_*.csv)
 │   │   ├── KPI/                  # входные CSV KPI (+ sample_*.csv)
-│   │   └── PROMETHEUS/
+│   │   ├── PROMETHEUS/
+│   │   │   └── live/             # большие живые parquet (gitignore)
+│   │   └── ZABBIX/               # parquet после restore (gitignore)
+│   │       └── live/             # pg_dump -Fc (gitignore)
 │   ├── processed/                # PROCESSED (по источникам)
 │   └── unified/                  # UNIFIED + ML-набор
 ├── reports/
@@ -302,6 +314,15 @@ python main.py kpi datasets/raw/KPI/sample_kpi_finals.csv
 
 ### Prometheus
 
+Локальные дампы (включая `datasets/raw/PROMETHEUS/live/`), без HTTP:
+
+```bash
+python main.py prometheus
+python main.py prometheus datasets/raw/PROMETHEUS/live/app_events.parquet
+```
+
+Живой HTTP API — только если первый аргумент выглядит как URL:
+
 ```bash
 python main.py prometheus http://185.28.85.183:9090 container_cpu_usage_seconds_total
 # несколько запросов и настройка диапазона:
@@ -310,11 +331,22 @@ python main.py prometheus http://185.28.85.183:9090 \
     --step 30 --range 7200
 ```
 
-### Общий запуск по трём источникам (`all`)
+### Zabbix
 
-Объединяет все источники в **один большой ML-набор**. Prometheus по умолчанию
-берётся из уже скачанных дампов `datasets/raw/PROMETHEUS/*.parquet`
-(живой сервер не вызывается):
+Сначала восстановить `pg_dump -Fc` во временный Postgres и получить parquet
+(нужен Docker с образом `postgres:15` либо локальный `psql`/`pg_restore` и `--dsn`):
+
+```bash
+python scripts/restore_zabbix_dumps.py
+python main.py zabbix
+python main.py zabbix datasets/raw/ZABBIX/zabbix_history.parquet
+```
+
+### Общий запуск по источникам (`all`)
+
+Объединяет NAB, KPI, локальные дампы Prometheus и Zabbix в **один большой ML-набор**.
+Prometheus по умолчанию берётся из уже скачанных дампов
+`datasets/raw/PROMETHEUS/` **рекурсивно** (живой сервер не вызывается):
 
 ```bash
 python main.py all

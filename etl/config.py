@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict
 
-from etl.schema import SOURCE_KPI, SOURCE_NAB, SOURCE_PROMETHEUS
+from etl.schema import SOURCE_KPI, SOURCE_NAB, SOURCE_PROMETHEUS, SOURCE_ZABBIX
 
 #: Корень проекта (каталог, содержащий пакет ``etl``).
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
@@ -31,12 +31,14 @@ REPORTS_DIR: Path = REPORTS_ROOT / "current"
 RAW_NAB_DIR: Path = RAW_DIR / SOURCE_NAB
 RAW_KPI_DIR: Path = RAW_DIR / SOURCE_KPI
 RAW_PROMETHEUS_DIR: Path = RAW_DIR / SOURCE_PROMETHEUS
+RAW_ZABBIX_DIR: Path = RAW_DIR / SOURCE_ZABBIX
 
 #: Соответствие «источник -> каталог исходных данных».
 RAW_SOURCE_DIRS: Dict[str, Path] = {
     SOURCE_NAB: RAW_NAB_DIR,
     SOURCE_KPI: RAW_KPI_DIR,
     SOURCE_PROMETHEUS: RAW_PROMETHEUS_DIR,
+    SOURCE_ZABBIX: RAW_ZABBIX_DIR,
 }
 
 #: Базовые имена итоговых артефактов.
@@ -64,6 +66,7 @@ class PipelinePaths:
             self.raw_dir / SOURCE_NAB,
             self.raw_dir / SOURCE_KPI,
             self.raw_dir / SOURCE_PROMETHEUS,
+            self.raw_dir / SOURCE_ZABBIX,
         )
         for directory in (
             self.raw_dir,

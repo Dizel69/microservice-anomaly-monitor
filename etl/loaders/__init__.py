@@ -7,8 +7,10 @@ __all__ = [
     "load_kpi",
     "load_prometheus",
     "load_prometheus_dump",
+    "load_zabbix_dump",
 ]
 
 from etl.loaders.kpi_loader import load_kpi
 from etl.loaders.nab_loader import load_nab
 from etl.loaders.prometheus_loader import load_prometheus, load_prometheus_dump
+from etl.loaders.zabbix_loader import load_zabbix_dump

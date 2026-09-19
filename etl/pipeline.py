@@ -36,6 +36,10 @@ class LoadedSource:
     #: Файл, из которого загружены данные (если источник — файл на диске).
     #: Нужен, чтобы конвейер не перезаписал собственный вход на уровне RAW.
     source_path: Optional[Path] = None
+    #: Если False, не копировать кадр в ``datasets/raw/<SOURCE>/raw_*.parquet``.
+    #: Нужно для конкатенации сотен live-дампов: иначе появился бы гигантский
+    #: файл в корне PROMETHEUS (он в git) и при следующем прогоне читался бы дважды.
+    persist_raw: bool = True
 
 
 @dataclass
@@ -132,7 +136,13 @@ def run_pipeline(
 
         # --- RAW: сохраняем как есть (в подкаталоге источника) ---
         raw_path = paths.raw_source_dir(src_label) / f"raw_{slug}.parquet"
-        if _is_same_file(source.source_path, raw_path):
+        if not source.persist_raw:
+            logger.info(
+                "RAW: %s не копируем в %s (исходные дампы уже на диске)",
+                source.name,
+                raw_path,
+            )
+        elif _is_same_file(source.source_path, raw_path):
             # Дампы Prometheus уже лежат по этому пути и лежат в git:
             # перезапись затёрла бы исходные данные результатом обработки.
             logger.info("RAW: %s уже является исходным файлом, не перезаписываем", raw_path)

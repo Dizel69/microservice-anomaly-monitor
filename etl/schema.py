@@ -7,7 +7,7 @@
 * ``metric_name``  — тип метрики (``cpu_usage``, ``memory_usage`` и т. д.);
 * ``value``        — числовое значение метрики;
 * ``label``        — метка аномалии (0 — норма, 1 — аномалия, -1 — неизвестно);
-* ``source``       — источник данных (``NAB``, ``KPI``, ``PROMETHEUS``).
+* ``source``       — источник данных (``NAB``, ``KPI``, ``PROMETHEUS``, ``ZABBIX``).
 
 Дополнительно у источников (например, Prometheus) может присутствовать
 служебная колонка :data:`LABELS` с исходными метками в формате JSON —
@@ -48,6 +48,7 @@ LABEL_UNKNOWN: Final[int] = -1
 SOURCE_NAB: Final[str] = "NAB"
 SOURCE_KPI: Final[str] = "KPI"
 SOURCE_PROMETHEUS: Final[str] = "PROMETHEUS"
+SOURCE_ZABBIX: Final[str] = "ZABBIX"
 
 # Канонические имена метрик микросервисов и инфраструктуры.
 METRIC_CPU: Final[str] = "cpu_usage"

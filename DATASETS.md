@@ -16,7 +16,8 @@
 | `datasets/raw/NAB/labels/combined_labels.json` | Точечные метки NAB (справочно) | MIT (numenta/NAB) |
 | `datasets/raw/KPI/phase2_train.csv.gz` | KPI Anomaly Detection, train | MIT ([NetManAIOps/KPI-Anomaly-Detection](https://github.com/NetManAIOps/KPI-Anomaly-Detection)) |
 | `datasets/raw/KPI/phase2_ground_truth.csv.gz` | KPI, тестовая выборка с эталонными метками | MIT (NetManAIOps) |
-| `datasets/raw/PROMETHEUS/*.parquet` | Выгрузка с нашего Prometheus | данные проекта |
+| `datasets/raw/PROMETHEUS/*.parquet` | Маленькие демо-дампы Prometheus | данные проекта |
+| `datasets/archives/` | Архивы живых дампов Prometheus/Zabbix (части < 90 МБ) | данные проекта |
 | `reports/before/` | Графики **до** исправления датасетов (для выступления) | этот репозиторий |
 | `reports/current/` | Графики **после** новых прогонов ETL | этот репозиторий |
 
@@ -29,6 +30,7 @@
 | NAB | `labels/combined_windows.json`: точка внутри окна -> 1, вне -> 0 | 0 / 1 |
 | KPI | колонка `label` в исходных CSV (разметка организаторов) | 0 / 1 |
 | PROMETHEUS | эталонной разметки нет, метки не выдумываем | -1 |
+| ZABBIX | эталонной разметки нет | -1 |
 
 В самих CSV-файлах NAB колонки `label` нет, поэтому без файла окон разметка
 невозможна. Если файла нет, загрузчик пишет предупреждение в лог.
@@ -44,6 +46,20 @@ python scripts/fetch_nab.py --labels-only
 
 # тестовая выборка KPI с ответами (HDF -> csv.gz)
 python scripts/fetch_kpi_ground_truth.py
+
+# живой Prometheus (кусками) → datasets/raw/PROMETHEUS/live/
+python scripts/fetch_prometheus_history.py http://HOST:9090 --inspect
+
+# Zabbix тестового контура → datasets/raw/ZABBIX/live/
+python scripts/fetch_zabbix_history.py https://ZABBIX/api_jsonrpc.php --inspect
+
+# pg_dump -Fc → parquet единой схемы (Docker postgres:15)
+python scripts/restore_zabbix_dumps.py
+
+# упаковать live/ для GitHub
+python scripts/pack_datasets_for_git.py
+# после clone:
+python scripts/pack_datasets_for_git.py --unpack
 ```
 
 ## Как пользоваться KPI из git
@@ -68,6 +84,7 @@ gzip -dk datasets/raw/KPI/phase2_train.csv.gz
 
 - `datasets/unified/*.csv` / `*.parquet` (сотни мегабайт, результат ETL)
 - `datasets/processed/`
+- распакованные `datasets/raw/PROMETHEUS/live/` и `datasets/raw/ZABBIX/live/` (в git — `datasets/archives/`)
 - несжатый `phase2_train.csv`
 - `.venv/`, `__pycache__/`, отчёты `.docx`
 

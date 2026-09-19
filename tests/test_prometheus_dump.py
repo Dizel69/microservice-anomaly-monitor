@@ -56,23 +56,39 @@ def test_existing_labels_in_dump_are_overridden(tmp_path: Path) -> None:
     assert frame[SOURCE].unique().tolist() == [SOURCE_PROMETHEUS]
 
 
-def test_all_command_uses_local_dumps_without_http(monkeypatch) -> None:
+def test_all_command_uses_local_dumps_without_http(
+    monkeypatch, tmp_path: Path
+) -> None:
     """Команда 'all' без --prom-url не обращается к живому HTTP API."""
 
     def fail(*args, **kwargs):
         raise AssertionError("живой Prometheus API не должен вызываться")
 
     monkeypatch.setattr(cli, "load_prometheus", fail)
+    dump_root = tmp_path / "PROMETHEUS"
+    live = dump_root / "live"
+    live.mkdir(parents=True)
+    frame = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-08-04", periods=3, freq="15s"),
+            "service": "backend",
+            "metric_name": "app_events",
+            "value": [1.0, 2.0, 3.0],
+            "label": [1, 0, 1],
+            "source": "SOMETHING_ELSE",
+        }
+    )
+    frame.to_parquet(live / "app_events.parquet")
+    monkeypatch.setattr(cli, "RAW_PROMETHEUS_DIR", dump_root)
 
     args = cli.build_parser().parse_args(["all"])
 
     assert args.prom_url is None
     assert args.prom_query is None
     sources = cli._prometheus_local_sources()
-    assert sources, "ожидались локальные дампы Prometheus"
-    for source in sources:
-        assert source.dataframe[SOURCE].unique().tolist() == [SOURCE_PROMETHEUS]
-        assert source.dataframe[LABEL].unique().tolist() == [LABEL_UNKNOWN]
+    assert len(sources) == 1, "ожидался один склеенный источник Prometheus"
+    assert sources[0].dataframe[SOURCE].unique().tolist() == [SOURCE_PROMETHEUS]
+    assert sources[0].dataframe[LABEL].unique().tolist() == [LABEL_UNKNOWN]
 
 
 def test_series_with_different_labels_stay_separate(real_prometheus_dump: Path) -> None:
@@ -217,3 +233,106 @@ def test_unsupported_dump_format_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         load_prometheus_dump(bogus)
+
+
+def _write_prom_dump(
+    path: Path,
+    *,
+    service: str,
+    metric_name: str,
+    labels: str,
+    rows: int = 3,
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-08-04", periods=rows, freq="1min"),
+            "service": service,
+            "metric_name": metric_name,
+            "value": [float(i) for i in range(rows)],
+            "label": 0,
+            "source": "OTHER",
+            "labels": [labels] * rows,
+        }
+    ).to_parquet(path)
+    return path
+
+
+def test_local_sources_recurse_live_and_concat(tmp_path: Path) -> None:
+    """live/**/*.parquet находятся рекурсивно и склеиваются в один источник."""
+
+    root = tmp_path / "PROMETHEUS"
+    _write_prom_dump(
+        root / "raw_prometheus_cpu.parquet",
+        service="node-exporter",
+        metric_name="cpu_usage",
+        labels='{"__name__": "node_cpu_seconds_total", "job": "node-exporter"}',
+    )
+    _write_prom_dump(
+        root / "live" / "app_events.parquet",
+        service="backend",
+        metric_name="app_events",
+        labels='{"__name__": "app_events", "job": "backend"}',
+    )
+    _write_prom_dump(
+        root / "live" / "nested" / "postgres__pg_database_size_bytes.parquet",
+        service="database",
+        metric_name="pg_database_size_bytes",
+        labels='{"__name__": "pg_database_size_bytes", "job": "postgres"}',
+    )
+    _write_prom_dump(
+        root / "live" / "telegram_request_duration_seconds_bucket.parquet",
+        service="bot",
+        metric_name="http_latency",
+        labels='{"__name__": "telegram_request_duration_seconds_bucket"}',
+    )
+
+    files = cli._prometheus_dump_files(root)
+    names = sorted(p.name for p in files)
+    assert "telegram_request_duration_seconds_bucket.parquet" not in names
+    assert "app_events.parquet" in names
+    assert "postgres__pg_database_size_bytes.parquet" in names
+
+    sources = cli._prometheus_local_sources([str(root)])
+    assert len(sources) == 1
+    frame = sources[0].dataframe
+    assert frame[LABEL].unique().tolist() == [LABEL_UNKNOWN]
+    assert set(frame["service"].unique()) == {"backend", "database", "node-exporter"}
+    assert sources[0].persist_raw is False
+
+
+def test_job_prefix_in_filename_does_not_change_metric_name(tmp_path: Path) -> None:
+    """Префикс job__ только в имени файла, qualify_metric_names его не видит."""
+
+    dump = _write_prom_dump(
+        tmp_path / "live" / "postgres__pg_database_size_bytes.parquet",
+        service="database",
+        metric_name="pg_database_size_bytes",
+        labels='{"__name__": "pg_database_size_bytes", "datname": "m15db", "job": "postgres"}',
+        rows=2,
+    )
+
+    frame = load_prometheus_dump(dump)
+
+    assert frame["metric_name"].unique().tolist() == ["pg_database_size_bytes"]
+    assert "postgres__" not in "".join(frame["metric_name"].astype(str))
+
+
+def test_prometheus_cli_without_url_is_local_mode() -> None:
+    """python main.py prometheus без URL — локальный режим, не HTTP."""
+
+    args = cli.build_parser().parse_args(["prometheus"])
+    assert args.targets == []
+    assert cli._looks_like_url("http://127.0.0.1:9090")
+    assert cli._looks_like_url("https://prom.example:9090")
+    assert not cli._looks_like_url("datasets/raw/PROMETHEUS/live")
+
+
+def test_prometheus_cli_url_still_parsed() -> None:
+    """Старый вызов с URL остаётся HTTP-режимом."""
+
+    args = cli.build_parser().parse_args(
+        ["prometheus", "http://127.0.0.1:9090", "up"]
+    )
+    assert args.targets[0] == "http://127.0.0.1:9090"
+    assert args.targets[1] == "up"

@@ -62,10 +62,12 @@ datasets/raw/KPI/phase2_train.csv
 gui/state.json
 gui/logs/*.log
 
-# Рабочие выгрузки Zabbix / большой live-Prometheus — не в публичный GitHub
-# (маленькие демо-дампы PROMETHEUS/*.parquet по-прежнему в git)
+# Распакованные живые дампы — для обучения локально.
+# В git кладём архивы datasets/archives/ (части < 90 МБ, лимит GitHub 100 МБ).
 datasets/raw/ZABBIX/**
 !datasets/raw/ZABBIX/.gitkeep
+!datasets/raw/ZABBIX/live/
+!datasets/raw/ZABBIX/live/.gitkeep
 datasets/raw/PROMETHEUS/live/**
 !datasets/raw/PROMETHEUS/live/.gitkeep
 
