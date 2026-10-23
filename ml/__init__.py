@@ -7,6 +7,7 @@ Prometheus и Zabbix (``label=-1``) в PR-AUC / precision / recall не вход
 
 from __future__ import annotations
 
+from ml.compare import run_compare
 from ml.metrics import evaluate_binary
 from ml.models import MODEL_FEATURE_COLUMNS
 from ml.runner import run_comparison
@@ -16,6 +17,7 @@ __all__ = [
     "MODEL_FEATURE_COLUMNS",
     "NAB_TRAIN_TIME_FRACTION",
     "evaluate_binary",
+    "run_compare",
     "run_comparison",
     "split_by_time",
     "split_kpi",

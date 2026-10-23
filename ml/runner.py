@@ -7,8 +7,9 @@ Prometheus и Zabbix в таблицу качества не попадают. �
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import List, Mapping, Optional, Sequence, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +17,7 @@ import pandas as pd
 
 from etl.config import RAW_NAB_DIR, REPORTS_ROOT
 from etl.features.feature_engineering import build_ml_dataset
+from etl.labels.nab_labels import NabWindowIndex
 from etl.loaders import load_nab
 from etl.logging_config import get_logger
 from etl.schema import LABEL, SOURCE, TIMESTAMP
@@ -30,6 +32,7 @@ from ml.metrics import (
 from ml.models import (
     MODEL_FEATURE_COLUMNS,
     OCSVM_MAX_TRAIN,
+    TRAIN_ROW_CAPS,
     Detector,
     build_detectors,
     make_detector,
@@ -69,10 +72,49 @@ def _fresh(detector: Detector) -> Detector:
     return deepcopy(detector)
 
 
+@dataclass
+class PairEval:
+    """Оценка одной модели на наборе рядов одного источника."""
+
+    scores: BinaryScores
+    n_train: int
+    n_test: int
+    y_true: np.ndarray
+    y_score: np.ndarray
+    y_pred: np.ndarray
+
+
+@dataclass
+class SourceModelEval(PairEval):
+    """Та же оценка плюс имена модели и источника для отчёта и графиков."""
+
+    model: str
+    source: str
+
+
+def _empty_pair_eval() -> PairEval:
+    return PairEval(
+        scores=BinaryScores(
+            pr_auc=float("nan"),
+            precision=float("nan"),
+            recall=float("nan"),
+            n_scored=0,
+            skipped=True,
+        ),
+        n_train=0,
+        n_test=0,
+        y_true=np.array([], dtype="float64"),
+        y_score=np.array([], dtype="float64"),
+        y_pred=np.array([], dtype="int64"),
+    )
+
+
 def _evaluate_model_on_pairs(
     detector_template: Detector,
     pairs: Sequence[Tuple[pd.DataFrame, pd.DataFrame]],
-) -> Tuple[BinaryScores, int, int]:
+    *,
+    max_train: Optional[int] = None,
+) -> PairEval:
     """Fit/score по каждому ряду, микро-усреднение на размеченном тесте."""
 
     y_parts: List[np.ndarray] = []
@@ -80,14 +122,18 @@ def _evaluate_model_on_pairs(
     pred_parts: List[np.ndarray] = []
     n_train = 0
     n_test = 0
+    skipped_ocsvm = 0
+    skipped_cap = 0
 
     for train, test in pairs:
         if len(train) < MIN_TRAIN_POINTS or test.empty:
             continue
-        if detector_template.name == "ocsvm" and len(train) > OCSVM_MAX_TRAIN:
-            logger.warning(
-                "OCSVM пропущен: n_train=%d > %d", len(train), OCSVM_MAX_TRAIN
-            )
+        row_cap = TRAIN_ROW_CAPS.get(detector_template.name)
+        if row_cap is not None and len(train) > row_cap:
+            skipped_ocsvm += 1
+            continue
+        if max_train is not None and len(train) > max_train:
+            skipped_cap += 1
             continue
         n_train += len(train)
         n_test += len(test)
@@ -98,25 +144,35 @@ def _evaluate_model_on_pairs(
         score_parts.append(np.asarray(detector.score(X_test), dtype="float64"))
         pred_parts.append(np.asarray(detector.predict(X_test)))
 
-    if not y_parts:
-        return (
-            BinaryScores(
-                pr_auc=float("nan"),
-                precision=float("nan"),
-                recall=float("nan"),
-                n_scored=0,
-                skipped=True,
-            ),
-            n_train,
-            n_test,
+    if skipped_ocsvm:
+        logger.info(
+            "%s: пропущено рядов с n_train>%d: %d",
+            detector_template.name,
+            TRAIN_ROW_CAPS.get(detector_template.name, OCSVM_MAX_TRAIN),
+            skipped_ocsvm,
+        )
+    if skipped_cap:
+        logger.info(
+            "%s: пропущено рядов с n_train>%d: %d",
+            detector_template.name,
+            max_train,
+            skipped_cap,
         )
 
-    scores = evaluate_binary(
-        np.concatenate(y_parts),
-        np.concatenate(score_parts),
-        np.concatenate(pred_parts),
+    if not y_parts:
+        return _empty_pair_eval()
+
+    y_true = np.concatenate(y_parts)
+    y_score = np.concatenate(score_parts)
+    y_pred = np.concatenate(pred_parts)
+    return PairEval(
+        scores=evaluate_binary(y_true, y_score, y_pred),
+        n_train=n_train,
+        n_test=n_test,
+        y_true=y_true,
+        y_score=y_score,
+        y_pred=y_pred,
     )
-    return scores, n_train, n_test
 
 
 def _series_pairs(
@@ -136,32 +192,33 @@ def _series_pairs(
     return pairs
 
 
-def run_comparison(
+def _resolve_detectors(
+    models: Optional[Sequence[Union[str, Detector]]],
+    *,
+    include_ocsvm: bool,
+) -> List[Detector]:
+    if models is None:
+        return build_detectors(include_ocsvm=include_ocsvm)
+    return [item if not isinstance(item, str) else make_detector(item) for item in models]
+
+
+def iter_source_evals(
     train: pd.DataFrame,
     test: pd.DataFrame,
+    detectors: Sequence[Detector],
     *,
-    models: Optional[Sequence[Union[str, Detector]]] = None,
-    include_ocsvm: bool = False,
-) -> pd.DataFrame:
-    """Сравнить модели на уже разбитых train/test. Одна таблица.
+    max_train_by_model: Optional[Mapping[str, int]] = None,
+) -> List[SourceModelEval]:
+    """Оценить каждую модель на каждом размеченном источнике.
 
-    Скейлинг и ``fit`` — внутри каждого ряда. Метки в ``fit`` не передаются.
-    Строки по ``PROMETHEUS`` / ``ZABBIX`` не пишутся.
+    ``PROMETHEUS`` и ``ZABBIX`` не попадают в результат. ``fit`` — по ряду,
+    без меток. ``max_train_by_model`` дополнительно отсекает тяжёлые модели
+    на длинных рядах (поверх лимита OCSVM).
     """
 
-    train_ml = ensure_ml_frame(train)
-    test_ml = ensure_ml_frame(test)
-
-    if models is None:
-        detectors = build_detectors(include_ocsvm=include_ocsvm)
-    else:
-        detectors = [
-            item if not isinstance(item, str) else make_detector(item) for item in models
-        ]
-
-    rows: List[dict] = []
-    train_sources = groups_map(train_ml, [SOURCE])
-    test_sources = groups_map(test_ml, [SOURCE])
+    train_sources = groups_map(train, [SOURCE])
+    test_sources = groups_map(test, [SOURCE])
+    found: List[SourceModelEval] = []
 
     for source, train_src in train_sources.items():
         source_name = str(source)
@@ -173,22 +230,85 @@ def run_comparison(
             continue
         pairs = _series_pairs(train_src, test_src)
         for detector in detectors:
-            scores, n_train, n_test = _evaluate_model_on_pairs(detector, pairs)
-            if scores.skipped and n_train == 0:
+            cap = None if max_train_by_model is None else max_train_by_model.get(detector.name)
+            logger.info(
+                "Считаю %s / %s: рядов %d%s",
+                detector.name,
+                source_name,
+                len(pairs),
+                f", лимит n_train<={cap}" if cap is not None else "",
+            )
+            evaluated = _evaluate_model_on_pairs(detector, pairs, max_train=cap)
+            if evaluated.scores.skipped and evaluated.n_train == 0:
                 continue
-            rows.append(
-                report_row(
+            logger.info(
+                "%s / %s: PR-AUC=%s P=%s R=%s n_train=%d n_test=%d",
+                detector.name,
+                source_name,
+                f"{evaluated.scores.pr_auc:.4f}" if evaluated.scores.pr_auc == evaluated.scores.pr_auc else "nan",
+                f"{evaluated.scores.precision:.4f}" if evaluated.scores.precision == evaluated.scores.precision else "nan",
+                f"{evaluated.scores.recall:.4f}" if evaluated.scores.recall == evaluated.scores.recall else "nan",
+                evaluated.n_train,
+                evaluated.n_test,
+            )
+            found.append(
+                SourceModelEval(
+                    scores=evaluated.scores,
+                    n_train=evaluated.n_train,
+                    n_test=evaluated.n_test,
+                    y_true=evaluated.y_true,
+                    y_score=evaluated.y_score,
+                    y_pred=evaluated.y_pred,
                     model=detector.name,
                     source=source_name,
-                    scores=scores,
-                    n_train=n_train,
-                    n_test=n_test,
                 )
             )
+    return found
 
-    if not rows:
+
+def evals_to_report(evals: Sequence[SourceModelEval]) -> pd.DataFrame:
+    """Собрать сводную таблицу из уже посчитанных оценок."""
+
+    if not evals:
         return empty_report()
+    rows = [
+        report_row(
+            model=item.model,
+            source=item.source,
+            scores=item.scores,
+            n_train=item.n_train,
+            n_test=item.n_test,
+        )
+        for item in evals
+    ]
     return pd.DataFrame(rows, columns=list(REPORT_COLUMNS))
+
+
+def run_comparison(
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    *,
+    models: Optional[Sequence[Union[str, Detector]]] = None,
+    include_ocsvm: bool = False,
+    max_train_by_model: Optional[Mapping[str, int]] = None,
+) -> pd.DataFrame:
+    """Сравнить модели на уже разбитых train/test. Одна таблица.
+
+    Скейлинг и ``fit`` — внутри каждого ряда. Метки в ``fit`` не передаются.
+    Строки по ``PROMETHEUS`` / ``ZABBIX`` не пишутся.
+    """
+
+    train_ml = ensure_ml_frame(train)
+    test_ml = ensure_ml_frame(test)
+    detectors = _resolve_detectors(models, include_ocsvm=include_ocsvm)
+    return evals_to_report(
+        iter_source_evals(
+            train_ml,
+            test_ml,
+            detectors,
+            max_train_by_model=max_train_by_model,
+        )
+    )
 
 
 def run_on_frame(
@@ -252,8 +372,16 @@ def save_pr_auc_plot(table: pd.DataFrame, path: Union[str, Path]) -> Optional[Pa
     return output
 
 
-def load_nab_series(relative_paths: Sequence[str]) -> pd.DataFrame:
-    """Загрузить указанные CSV NAB через ``load_nab`` (без unified)."""
+def load_nab_series(
+    relative_paths: Sequence[str],
+    *,
+    windows: Optional[NabWindowIndex] = None,
+) -> pd.DataFrame:
+    """Загрузить указанные CSV NAB через ``load_nab`` (без unified).
+
+    ``windows`` — уже прочитанный ``combined_windows.json``. Если не передан,
+    каждый файл ищет окна сам, как раньше.
+    """
 
     frames: List[pd.DataFrame] = []
     for relative in relative_paths:
@@ -261,7 +389,7 @@ def load_nab_series(relative_paths: Sequence[str]) -> pd.DataFrame:
         if not path.is_file():
             logger.warning("NAB-файл не найден, пропуск: %s", path)
             continue
-        frames.append(load_nab(path))
+        frames.append(load_nab(path, windows=windows))
     if not frames:
         raise FileNotFoundError(
             f"Не найдено ни одного NAB-файла из {list(relative_paths)} в {RAW_NAB_DIR}"

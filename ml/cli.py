@@ -1,12 +1,14 @@
-"""CLI: ``python -m ml smoke-nab`` — дымовой прогон на коротких рядах NAB."""
+"""CLI: ``python -m ml smoke-nab`` и ``python -m ml compare``."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import List, Optional
 
 from etl.logging_config import configure_logging
+from ml.compare import KPI_IDS_NAME, SUMMARY_NAME, run_compare
 from ml.runner import ML_REPORTS_DIR, SMOKE_NAB_FILES, run_nab_smoke
 
 
@@ -45,6 +47,36 @@ def build_parser() -> argparse.ArgumentParser:
         default=list(SMOKE_NAB_FILES),
         help="Относительные пути CSV внутри datasets/raw/NAB/",
     )
+
+    compare = sub.add_parser(
+        "compare",
+        help=(
+            "Все ряды NAB и срез KPI: 12 детекторов без учителя "
+            "→ reports/ml/compare_summary.csv и PNG"
+        ),
+    )
+    scope = compare.add_mutually_exclusive_group()
+    scope.add_argument(
+        "--nab-only",
+        action="store_true",
+        help="Только NAB, без KPI",
+    )
+    scope.add_argument(
+        "--kpi-only",
+        action="store_true",
+        help="Только срез KPI, без NAB",
+    )
+    compare.add_argument(
+        "--kpi-series",
+        type=int,
+        default=8,
+        help="Сколько общих KPI ID взять (сортировка id, по умолчанию 8)",
+    )
+    compare.add_argument(
+        "--output-dir",
+        default=str(ML_REPORTS_DIR),
+        help="Каталог CSV и PNG (по умолчанию reports/ml)",
+    )
     return parser
 
 
@@ -65,6 +97,24 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
         print(table.to_string(index=False))
         print(f"\nЗаписано: {args.output}")
+        return 0
+
+    if args.command == "compare":
+        output_dir = Path(args.output_dir)
+        table = run_compare(
+            nab=not args.kpi_only,
+            kpi=not args.nab_only,
+            kpi_series=args.kpi_series,
+            output_dir=output_dir,
+        )
+        if table.empty:
+            print("Пустой отчёт: нет размеченных тестовых точек.", file=sys.stderr)
+            return 1
+        print(table.to_string(index=False))
+        print(f"\nСводка: {output_dir / SUMMARY_NAME}")
+        if not args.nab_only:
+            print(f"KPI ID: {output_dir / KPI_IDS_NAME}")
+        print(f"Графики: {output_dir}")
         return 0
 
     parser.error(f"Неизвестная команда {args.command}")
