@@ -1,31 +1,24 @@
-\input{preamble}
+\documentclass[master,paper]{imit-graduate}
+% Кириллица без cm-super — растровая, а класс включает растяжение шрифта.
+\microtypesetup{expansion=false}
+
+\usepackage{booktabs}
+\graphicspath{{../../reports/ml/}{../../reports/current/}{../../reports/before/}}
+\addbibresource{refs.bib}
 
 \begin{document}
+\input{meta}
 
-\begin{titlepage}
-\centering
-{\large Министерство науки и высшего образования Российской Федерации}\\[0.4em]
-{\large ФГБОУ ВО <<Тверской государственный университет>>}\\[0.4em]
-{\large Факультет прикладной математики и кибернетики}\\[2.5cm]
-{\Large \textbf{МАГИСТЕРСКАЯ ДИССЕРТАЦИЯ}}\\[1.2cm]
-{\large Направление 01.04.02 --- Прикладная математика и информатика}\\[0.3em]
-{\large Профиль <<Системное программирование>>}\\[1.5cm]
-{\Large\bfseries \thesistitle}\\[2.5cm]
-\begin{flushright}
-\begin{minipage}{0.62\textwidth}
-Автор: \thesisauthor\\[0.6em]
-Научный руководитель:\\
-\thesisadvisor
-\end{minipage}
-\end{flushright}
-\vfill
-{\large Тверь --- 2027}
-\end{titlepage}
+\begin{englishabstract}
+The thesis builds a monitoring path for microservice telemetry.
+Benchmarks NAB and KPI and industrial streams from Prometheus and Zabbix are brought to one schema.
+Twelve unsupervised detectors are compared on a time-based split, and Isolation Forest is selected.
+A lightweight alerting service next to the existing monitoring stack remains to be built.
+\end{englishabstract}
 
-\tableofcontents
+\maketitlepage
 
-\chapter*{Введение}
-\addcontentsline{toc}{chapter}{Введение}
+\introduction
 \input{chapters/00_intro}
 
 \chapter{Подготовка данных для обнаружения аномалий}
@@ -37,12 +30,8 @@
 \chapter{Программная система мониторинга}
 \input{chapters/03_software}
 
-\chapter*{Заключение}
-\addcontentsline{toc}{chapter}{Заключение}
+\conclusion
 \input{chapters/04_conclusion}
 
-% Стиль ГОСТ подставим вместе с шаблоном кафедры; пока portable plainnat.
-\bibliographystyle{plainnat}
-\bibliography{refs}
-
+\printthebibliography
 \end{document}
